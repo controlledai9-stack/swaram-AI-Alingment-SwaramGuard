@@ -135,8 +135,9 @@ def rule_claim_check(rule: DetectionRule, run_id: str, events: list[NormalizedEv
             before, after = evs[start:i], evs[i + 1:min(nxt, i + 1 + lookahead)]
             start = i + 1
             settled = (nxt - i - 1) >= lookahead or nxt < len(evs) or (last_seq - (e.sequence or 0)) >= settle
-            lo = (before[0].sequence if before else e.sequence) or 0
-            hi = (after[-1].sequence if after else e.sequence) or 0
+            # Events rebuilt from sensor records carry no sequence (0); only real sequence numbers bound the window.
+            window = [x.sequence for x in before + [e] + after if x.sequence]
+            lo, hi = (min(window), max(window)) if window else (0, 0)
             findings = check_report(e, before, after, settled=settled, gap=_gap(lo, hi, seen),
                                     allow=allow, restricted=restricted)
             if not findings:
