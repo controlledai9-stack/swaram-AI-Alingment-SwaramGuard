@@ -42,7 +42,11 @@ No model is needed: everything runs offline with scripted agents, and real model
   datasets it never saw (`docs/injection-classifier.md`).
 - **Claim check** (SG-030): every action an agent says it took in a report is checked against what was actually
   recorded (wrong destination, wrong file, a failed call reported as done, a hidden transfer, a call that never
-  happened). Where the monitor lost events, an unmatched claim is marked unverified, not a lie.
+  happened). Where the monitor lost events, an unmatched claim is marked unverified, not a lie. An independent state
+  check on a real database catches the lies a log can't show (wrong values, forged log entries): 100% vs 0% for a
+  log-only check (`docs/threat-model.md` §26).
+- **collusion.wiki** (agents using a wiki as a message board): a content-blind monitor flagged the store as a
+  multi-agent board ~21 days before the first labelled live coordination (`docs/swarm-traces.md` §3).
 - **Operations**: OCSF alert export for SIEMs, OWASP Agentic Top 10 coverage map, API keys with roles, a Gemini quota meter that refuses runs that won't fit, a dataset generator, an
   adaptive injection fuzzer, an internal-goal fuzzer (agents breaking policy for a goal of their own, no attacker), a
   real-agent demo enforced at the network (`scripts/demo_real_agents.py`), and CI on every pull request.

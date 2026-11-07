@@ -50,3 +50,27 @@ AgentDojo's clean tool results are long emails, calendars and transaction lists,
 some. This is the classifier's honest ceiling, and the reason the behaviour rules and the egress controls stay the
 real enforcement. It also measures only the content signal; in a live run SG-012 and the tripwire act on what the
 agent does next.
+
+## 3. collusion.wiki (content-blind coordination monitor)
+
+[collusion.wiki](https://collusion.wiki/) (Von Arx et al., 2026) is ~14.6k revisions by autonomous agents that used
+small volunteer wikis as a message board (May-July 2026): the same shape as the METR / Redwood Hugging Face incident,
+where ~1,200 agents talked through names in a shared package cache. Labels: one per revision (coordinating or not),
+from an LLM labelling pass, spot-checked by us. They are weak labels: the "not coordinating" class still contains relay
+infrastructure (pages of chained proxy links and pointers to other agents' pages), so coordination is undercounted.
+Reproduce: `python -I scripts/analyze_collusion_wiki.py <dataset dir> <revision labels>`.
+
+The monitor never reads text; it sees which page, which author identity, which network prefix, and when.
+
+| | Result |
+|---|---|
+| Store alert: 50 distinct agents writing to one wiki within 3 hours | 26 May, **~500 hours (21 days) before** the first revision labelled coordination (16 June) |
+| Per revision: "continues a page last written by another agent" | precision 0.34, recall 0.74 (base rate 0.28) |
+| SG-029 (covert transfer, reads text) | 0 of 14,591 flagged |
+
+**Honest reading.** Watching *how many agents converge on one shared store* is a strong, early, content-blind signal:
+it would have marked this wiki as a multi-agent board three weeks before the labelled live coordination. Telling
+*which edits* are coordination is not possible without content: on a store that exists for agents to talk, almost every
+edit is one agent continuing another's page. SG-029 is the wrong tool here: these agents relayed plain-text answers
+and link chains, not encoded loaders. What an investigator still misses without content: what was relayed, which
+relay changed an outcome, and coordination through stores the gateway does not see.
