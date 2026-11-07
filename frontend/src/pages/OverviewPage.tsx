@@ -4,8 +4,8 @@ import { api } from "../api";
 import { Tile } from "../components/Tile";
 import { Drawer } from "../components/Drawer";
 import { GraphView } from "../components/GraphView";
-import { DecisionCard } from "../components/DecisionCard";
 import { deriveIncidentTitle } from "../lib/incidentHelper";
+import { friendlyAgentName } from "../lib/format";
 import { ArrowRight, ShieldCheck, ShieldAlert, Play, Check } from "lucide-react";
 
 export function OverviewPage() {
@@ -43,10 +43,10 @@ export function OverviewPage() {
   const highCount = alerts.filter((a) => a.severity === "high").length;
   const medCount = alerts.filter((a) => a.severity === "medium").length;
 
-  // Metric 1: Stopped before it ran (actions denied by gateway before execution)
+  // Metric 1: Stopped before it ran (actions denied strictly by pre-execution policy gate)
   const stoppedBeforeRanCount = responses.filter(
-    (r) => r.mode === "enforced" || r.outcome === "blocked"
-  ).length || (alerts.length > 0 ? alerts.length : 0);
+    (r) => r.mode === "enforced" && (r.outcome === "blocked" || r.decision === "block")
+  ).length;
 
   // Metric 2: Agents stopped
   const agentsStoppedCount = currentRun?.labels.malicious_agent_ids.length ?? (alerts.length > 0 ? 2 : 0);
@@ -137,7 +137,7 @@ export function OverviewPage() {
             No active run selected
           </h2>
           <p className="mt-2 text-[15px] text-[var(--text-2)] max-w-lg mx-auto">
-            Launch a realistic multi-agent attack scenario to observe real-time threat detection, pre-execution interception, and swarm safety triggers.
+            Launch a realistic multi-agent attack scenario to observe real-time threat detection, stopping harmful actions before they run, and swarm safety triggers.
           </p>
           <div className="mt-6">
             <button
@@ -200,15 +200,8 @@ export function OverviewPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
               {pendingReviews.length > 0 && (
                 <a
-                  href="#dashboard-decisions"
-                  onClick={(e) => {
-                    const el = document.getElementById("dashboard-decisions");
-                    if (el) {
-                      e.preventDefault();
-                      el.scrollIntoView({ behavior: "smooth" });
-                    }
-                  }}
-                  className="inline-flex h-11 items-center gap-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-5 text-[14px] shadow-xs transition-colors cursor-pointer"
+                  href="#/incidents"
+                  className="inline-flex h-11 items-center gap-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-5 text-[14px] shadow-xs transition-colors"
                 >
                   <span>{pendingReviews.length} need a decision</span>
                   <ArrowRight size={15} />
@@ -226,50 +219,6 @@ export function OverviewPage() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Active In-Page Adjudication: Decide directly from Dashboard without having to go to Incidents */}
-      {!isNoRun && pendingReviews.length > 0 && (
-        <section id="dashboard-decisions" className="space-y-4 rounded-2xl border border-rose-300 bg-rose-50/50 p-6 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-600 text-white text-[12px] font-bold">
-                {pendingReviews.length}
-              </span>
-              <div>
-                <h3 className="text-[18px] font-bold text-neutral-900">
-                  Needs Your Decision ({pendingReviews.length})
-                </h3>
-                <p className="text-[13px] text-neutral-600">
-                  Release or keep contained directly from the dashboard without navigating away.
-                </p>
-              </div>
-            </div>
-            <a
-              href="#/incidents"
-              className="text-[13px] font-semibold text-rose-700 hover:text-rose-900 hover:underline"
-            >
-              Open Incidents Hub &rarr;
-            </a>
-          </div>
-
-          <div className="space-y-4 pt-2">
-            {pendingReviews.map((item) => (
-              <DecisionCard
-                key={item.review_id}
-                item={item}
-                agents={agents}
-                alerts={alerts}
-                onDecide={async (reviewId, decision, note, reviewer) => {
-                  await api.decideReview(reviewId, decision, note, reviewer);
-                  await reviewsData.reload();
-                  await alertsData.reload();
-                  await responsesData.reload();
-                }}
-              />
-            ))}
-          </div>
-        </section>
       )}
 
       {/* 3. 4 Number Tiles (Strictly Plain English) */}
@@ -418,7 +367,7 @@ export function OverviewPage() {
       <Drawer
         open={!!selectedAgentId}
         onClose={() => setSelectedAgentId(null)}
-        title={selectedAgent ? `${selectedAgent.agent_id}` : "Agent Details"}
+        title={selectedAgent ? friendlyAgentName(selectedAgent.agent_id, selectedAgent.role) : "Agent Details"}
         subtitle={selectedAgent ? `Role: ${selectedAgent.role}` : ""}
       >
         {selectedAgent && (

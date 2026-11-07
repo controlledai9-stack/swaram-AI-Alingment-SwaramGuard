@@ -85,3 +85,12 @@ def test_auth_is_off_without_keys_and_bad_config_is_refused(monkeypatch, tmp_pat
         load_keys("bob:short:admin")
     with pytest.raises(ValueError, match="unknown role"):
         load_keys("bob:0123456789abcdefgh:superuser")
+
+
+def test_live_reset_requires_admin_role_and_blocks_non_admins(client):
+    """Enforce that /api/live/reset strictly rejects non-admins with HTTP 403 Forbidden."""
+    assert client.post("/api/live/reset", headers=H("viewer")).status_code == 403
+    assert client.post("/api/live/reset", headers=H("operator")).status_code == 403
+    assert client.post("/api/live/reset", headers=H("agent")).status_code == 403
+    # Admin is authorized
+    assert client.post("/api/live/reset", headers=H("admin")).status_code == 200

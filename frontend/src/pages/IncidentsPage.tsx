@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAppState, useRunData } from "../state";
 import { api } from "../api";
 import { PageHeader } from "../components/PageHeader";
@@ -46,6 +46,8 @@ function AgentRoleBadge({
   );
 }
 
+type MergedReviewItem = ReviewItem & { review_ids: string[] };
+
 export function IncidentsPage({
   initialAlertId,
   initialView = "needs_decision",
@@ -84,6 +86,31 @@ export function IncidentsPage({
 
   const pendingReviews = reviews.filter((r) => r.status === "pending");
   const resolvedReviews = reviews.filter((r) => r.status !== "pending");
+
+  // Merge duplicate review cards per agent (e.g. 4 cards for same agent merged into 1 card)
+  const mergedPendingReviews: MergedReviewItem[] = useMemo(() => {
+    const map = new Map<string, { primary: ReviewItem; review_ids: string[]; reasons: string[] }>();
+    for (const item of pendingReviews) {
+      if (!map.has(item.agent_id)) {
+        map.set(item.agent_id, {
+          primary: { ...item },
+          review_ids: [item.review_id],
+          reasons: item.explanation ? [item.explanation] : [],
+        });
+      } else {
+        const cur = map.get(item.agent_id)!;
+        cur.review_ids.push(item.review_id);
+        if (item.explanation && !cur.reasons.includes(item.explanation)) {
+          cur.reasons.push(item.explanation);
+        }
+      }
+    }
+    return Array.from(map.values()).map(({ primary, review_ids, reasons }) => ({
+      ...primary,
+      review_ids,
+      explanation: reasons.length > 0 ? reasons.join(" · ") : primary.explanation,
+    }));
+  }, [pendingReviews]);
 
   const [selectedId, setSelectedId] = useState<string | null>(initialAlertId ?? null);
   const [activeTab, setActiveTab] = useState<"summary" | "evidence">("summary");
@@ -144,7 +171,13 @@ export function IncidentsPage({
     setDecidingId(reviewId);
     setActionError(null);
     try {
-      await api.decideReview(reviewId, decision, note, reviewer);
+      const match = mergedPendingReviews.find(
+        (m: MergedReviewItem) => m.review_id === reviewId || (m.review_ids && m.review_ids.includes(reviewId))
+      );
+      const ids = match?.review_ids?.length ? match.review_ids : [reviewId];
+      for (const id of ids) {
+        await api.decideReview(id, decision, note, reviewer);
+      }
       setReviewTick((t) => t + 1);
     } catch (e) {
       setActionError((e as Error).message);
@@ -213,9 +246,9 @@ export function IncidentsPage({
           </div>
 
           {decisionFilter === "pending" ? (
-            pendingReviews.length > 0 ? (
+            mergedPendingReviews.length > 0 ? (
               <div className="space-y-4">
-                {pendingReviews.map((item) => (
+                {mergedPendingReviews.map((item: MergedReviewItem) => (
                   <DecisionCard
                     key={item.review_id}
                     item={item}

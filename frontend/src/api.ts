@@ -39,6 +39,7 @@ const put = <T>(path: string, body: unknown) => request<T>(path, { method: "PUT"
 
 export const api = {
   health: () => request<{ ok: boolean; storage: string; workspace: string; auth?: "on" | "off" }>("/health"),
+  whoami: () => request<{ auth: boolean; name: string | null; role: string }>("/whoami"),
   meta: () => request<Meta>("/meta"),
   moduleInfo: (name: string) => request<ModuleInfo>(`/modules/${name}`),
 

@@ -24,7 +24,7 @@ export function AssurancePage({ initialTab = "owasp" }: { initialTab?: TrustTab 
       id: "benchmarks",
       label: "Benchmarks",
       icon: <BarChart3 size={16} className="text-[#2E9E5B]" />,
-      explanation: "Tested against 30 attack scenarios and 14 benign look-alikes with zero false alarms.",
+      explanation: "Tested against 30 attack scenarios and 14 benign collaboration runs.",
     },
     {
       id: "outside_proof",
@@ -41,7 +41,7 @@ export function AssurancePage({ initialTab = "owasp" }: { initialTab?: TrustTab 
         <div className="border-b border-[#2E9E5B]/20 pb-8">
           <div className="inline-flex items-center gap-2 rounded-full border border-[#2E9E5B]/30 bg-white/70 px-3.5 py-1 text-[13px] font-medium text-[#1F7A45] shadow-xs">
             <span className="h-2 w-2 rounded-full bg-[#2E9E5B]" />
-            Independent Empirical Verification
+            Empirical System Verification
           </div>
 
           <h1 className="mt-4 text-4xl sm:text-5xl lg:text-[52px] font-bold tracking-tight text-[#1F7A45]">
@@ -49,7 +49,7 @@ export function AssurancePage({ initialTab = "owasp" }: { initialTab?: TrustTab 
           </h1>
 
           <p className="mt-3 max-w-3xl text-lg sm:text-[19px] leading-relaxed text-[#1F7A45]/90 font-normal">
-            Every safety rule in SwaramGuard is tested against real adversarial attack traces, multi-agent covert channels, and industry threat benchmarks — with zero false alarms on clean runs.
+            Every safety rule in SwaramGuard is tested against realistic attack scenarios, multi-agent data leaks, and industry threat benchmarks across verified test runs.
           </p>
 
           {/* Simple Tab Switcher */}

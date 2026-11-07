@@ -7,8 +7,7 @@ import { Footnotes } from "../components/Footnotes";
 import { Card, Empty } from "../components/ui";
 import { shortId, time } from "../lib/format";
 import { getAgentRole } from "../lib/incidentHelper";
-import { ShieldCheck, ShieldAlert, Sliders } from "lucide-react";
-import { ReviewQueueCard } from "./ReviewQueueCard";
+import { ShieldCheck, ShieldAlert, Sliders, ArrowRight } from "lucide-react";
 import type { ResponseAction } from "../types";
 
 export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
@@ -54,8 +53,22 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
         />
       )}
 
-      {/* Human review of live containment (paused agents, held egress, quarantined inputs) */}
-      <ReviewQueueCard />
+            {/* Containment decisions callout linking to Incidents */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--hairline)] bg-[var(--card)] p-4 shadow-xs">
+        <div>
+          <div className="text-[14px] font-semibold text-[var(--text)]">Adjudication &amp; Containment Decisions</div>
+          <div className="text-[13px] text-[var(--text-2)]">
+            Every stopped agent waiting for human review is decided on Incidents &rarr; Needs decision.
+          </div>
+        </div>
+        <a
+          href="#/incidents"
+          className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--accent)] hover:opacity-90 px-4 text-[13px] font-medium text-white transition-opacity shadow-xs"
+        >
+          <span>Open Incidents</span>
+          <ArrowRight size={13} />
+        </a>
+      </div>
 
       {/* Top Banner: Data-dependent honesty */}
       {responses.length > 0 && (

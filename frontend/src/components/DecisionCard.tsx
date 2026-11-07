@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, ShieldAlert, Check } from "lucide-react";
 import type { ReviewItem, Alert, Agent } from "../types";
-import { shortId } from "../lib/format";
+import { shortId, friendlyAgentName } from "../lib/format";
 
 export interface DecisionCardProps {
   item: ReviewItem;
@@ -103,10 +103,7 @@ export function DecisionCard({ item, agents = [], alerts = [], onDecide, busy = 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-[15px] text-[var(--text)]">
-            {item.agent_id}
-          </span>
-          <span className="text-[13px] text-[var(--text-2)] font-medium">
-            &middot; {item.role || agent?.role || "Agent"}
+            {friendlyAgentName(item.agent_id, item.role || agent?.role)}
           </span>
           <span className="rounded-full bg-[var(--low-bg)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--text-2)]">
             {plainKind}

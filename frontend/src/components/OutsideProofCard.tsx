@@ -37,7 +37,7 @@ export function OutsideProofCard() {
                     {swarmTraces.title}
                   </h3>
                   <span className="font-mono text-[12px] text-[var(--text-3)]">
-                    Rule SG-029 Covert Staged Transfer
+                    Secret Data Send Rule
                   </span>
                 </div>
               </div>
@@ -68,7 +68,7 @@ export function OutsideProofCard() {
 
               <div className="rounded-xl bg-[var(--crit-bg)] p-3 border border-[var(--crit)]/20">
                 <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--crit)]">
-                  Covert Caught
+                  Secret sends caught
                 </span>
                 <div className="mt-1 text-[22px] font-bold tabular-nums text-[var(--crit)]">
                   {swarmTraces.flaggedCovert.toLocaleString()}
@@ -131,7 +131,7 @@ export function OutsideProofCard() {
                     {agentDojo.title}
                   </h3>
                   <span className="font-mono text-[12px] text-[var(--text-3)]">
-                    Rule SG-028 Injection Classifier Replay
+                    Prompt Injection Safety Rule
                   </span>
                 </div>
               </div>
@@ -204,7 +204,7 @@ export function OutsideProofCard() {
 
           {/* Honest Ceiling Callout */}
           <div className="mt-6 rounded-xl border border-[var(--hairline-subtle)] bg-[var(--bg-alt)] p-3.5 text-[12px] text-[var(--text-2)] leading-relaxed">
-            <span className="font-semibold text-[var(--text)]">Honest Ceiling Disclosure:</span> External clean documents (long emails, calendars, invoices) have a {Math.round(parseFloat(agentDojo.falsePositiveRate) * 100)}% false alarm rate on raw content. Defense-in-depth relies on pre-execution behavioral tripwires (SG-012) and egress proxy containment rather than linear classification alone.
+            <span className="font-semibold text-[var(--text)]">Honest Ceiling Disclosure:</span> External clean documents (long emails, calendars, invoices) have a {Math.round(parseFloat(agentDojo.falsePositiveRate) * 100)}% false alarm rate on raw content. Defense-in-depth relies on multiple safety triggers and stopping actions before they run, rather than single content scans alone.
           </div>
         </div>
       </div>

@@ -4,12 +4,11 @@ import { api } from "../api";
 import { GeminiQuota } from "../components/GeminiQuota";
 import { PageHeader } from "../components/PageHeader";
 import { Card, CustomSelect, Empty, Segmented, StatusBanner, type Status } from "../components/ui";
-import { shortId } from "../lib/format";
+import { shortId, friendlyAgentName } from "../lib/format";
 import { type LiveMessage, useLiveStream } from "../lib/live";
 import { useAppState } from "../state";
-import type { AgentCount, ReviewItem } from "../types";
-import { Zap, ShieldAlert, Lock, Play, Square, Filter, Check } from "lucide-react";
-import { DecisionCard } from "../components/DecisionCard";
+import type { AgentCount } from "../types";
+import { Zap, ShieldAlert, Lock, Play, Square, Filter } from "lucide-react";
 
 type AnyData = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -143,6 +142,11 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+  const [userRole, setUserRole] = useState<string>("admin");
+
+  useEffect(() => {
+    api.whoami().then((w) => setUserRole(w.role)).catch(() => setUserRole("local"));
+  }, []);
 
   // Feed filter: actions (default), alerts, everything
   const [feedFilter, setFeedFilter] = useState<"actions" | "alerts" | "everything">("actions");
@@ -185,9 +189,13 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
           out.get(m.data.item.agent_id)!.state = "active";
         } else if (
           m.type === "event" &&
-          (m.data.status === "denied" ||
+          m.data.status === "denied" &&
+          (m.data.gateway_decision === "blocked" ||
             (m.data.payload?.gateway_reason &&
-              String(m.data.payload.gateway_reason).includes("before execution")))
+              (String(m.data.payload.gateway_reason).includes("before execution") ||
+               String(m.data.payload.gateway_reason).includes("pre-execution") ||
+               String(m.data.payload.gateway_reason).includes("not allowed") ||
+               String(m.data.payload.gateway_reason).includes("blocked"))))
         ) {
           preBlocks++;
         } else if (m.type === "detection" && m.data.rule_id === "SG-029") {
@@ -216,50 +224,6 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     }, [messages]);
 
   const [acting, setActing] = useState<string | null>(null);
-  const [inspectingAgentId, setInspectingAgentId] = useState<string | null>(null);
-  const [liveReviews, setLiveReviews] = useState<ReviewItem[]>([]);
-
-  const refreshLiveReviews = async () => {
-    try {
-      const items = await api.reviews("pending");
-      setLiveReviews(items);
-    } catch {}
-  };
-
-  useEffect(() => {
-    refreshLiveReviews();
-  }, [messages.length]);
-
-  // Direct In-Page Adjudication for Live Guard: Release or Keep Contained right here!
-  async function handleLiveDecide(agentId: string, decision: "release" | "confirm") {
-    setActing(agentId);
-    setStatus(null);
-    try {
-      let review = liveReviews.find((r) => r.agent_id === agentId);
-      if (!review) {
-        const fresh = await api.reviews("pending");
-        review = fresh.find((r) => r.agent_id === agentId);
-      }
-      if (review) {
-        await api.decideReview(review.review_id, decision, `Decided directly from Live Guard`, "Operator");
-      }
-      setStatus({
-        kind: "success",
-        message:
-          decision === "release"
-            ? `Agent ${shortId(agentId)} released successfully.`
-            : `Agent ${shortId(agentId)} confirmed contained.`,
-      });
-      await refreshLiveReviews();
-      if (inspectingAgentId === agentId) {
-        setInspectingAgentId(null);
-      }
-    } catch (e) {
-      setStatus({ kind: "error", message: (e as Error).message });
-    } finally {
-      setActing(null);
-    }
-  }
 
   // Emergency brake only: Pause agent or Stop run
   async function operate(agentId: string | null) {
@@ -284,13 +248,13 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
       reset();
       setStatus({
         kind: "success",
-        message: <>All live telemetry and {res.released_containments || "any"} stopped agent states have been reset.</>,
+        message: <>All live activity and {res.released_containments || "any"} stopped agent states have been reset.</>,
       });
     } catch (e) {
       reset();
       setStatus({
         kind: "info",
-        message: "Live telemetry feed and counters reset.",
+        message: "Live activity feed and counters reset.",
       });
     } finally {
       setResetting(false);
@@ -468,7 +432,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
             )}
           </div>
 
-          {/* Pinned "Needs decision" Strip with Direct In-Page Actions */}
+          {/* Pinned "Needs decision" Strip with Review -> Link */}
           {containedAgentsList.length > 0 && (
             <div className="rounded-[var(--r-card)] border border-rose-300 bg-rose-50/80 p-4 shadow-xs">
               <div className="flex items-center justify-between mb-2">
@@ -488,68 +452,25 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 </a>
               </div>
               <div className="divide-y divide-rose-200/70">
-                {containedAgentsList.map((c) => {
-                  const matchingReview = liveReviews.find((r) => r.agent_id === c.agent_id);
-                  const isInspecting = inspectingAgentId === c.agent_id;
-                  return (
-                    <div key={c.agent_id} className="py-2.5 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
-                        <div className="flex items-center gap-2">
-                          <span className="text-rose-600">⛔</span>
-                          <span className="font-mono font-semibold text-neutral-900">{shortId(c.agent_id)}</span>
-                          <span className="text-neutral-600">stopped</span>
-                          <span className="text-neutral-400">&middot;</span>
-                          <span className="text-neutral-800 font-medium">{c.reason}</span>
-                        </div>
-
-                        {/* Direct In-Page Actions - No need to always leave Live Guard! */}
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleLiveDecide(c.agent_id, "release")}
-                            disabled={acting === c.agent_id}
-                            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-medium shadow-2xs transition-colors disabled:opacity-50"
-                          >
-                            <Check size={12} strokeWidth={2.5} />
-                            <span>{acting === c.agent_id ? "…" : "Release"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleLiveDecide(c.agent_id, "confirm")}
-                            disabled={acting === c.agent_id}
-                            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-medium shadow-2xs transition-colors disabled:opacity-50"
-                          >
-                            <Lock size={12} strokeWidth={2} />
-                            <span>{acting === c.agent_id ? "…" : "Keep contained"}</span>
-                          </button>
-                          {matchingReview && (
-                            <button
-                              type="button"
-                              onClick={() => setInspectingAgentId(isInspecting ? null : c.agent_id)}
-                              className="text-[12px] font-medium text-neutral-700 hover:text-neutral-900 px-2.5 py-1 rounded-full bg-white border border-rose-300 shadow-2xs transition-colors"
-                            >
-                              {isInspecting ? "Hide details" : "Details"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Expandable DecisionCard right inside Live Guard */}
-                      {isInspecting && matchingReview && (
-                        <div className="pt-2">
-                          <DecisionCard
-                            item={matchingReview}
-                            onDecide={async (reviewId, decision, note, reviewer) => {
-                              await api.decideReview(reviewId, decision, note, reviewer);
-                              await refreshLiveReviews();
-                              setInspectingAgentId(null);
-                            }}
-                          />
-                        </div>
-                      )}
+                {containedAgentsList.map((c) => (
+                  <div key={c.agent_id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 text-[13px]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-600">⛔</span>
+                      <span className="font-semibold text-neutral-900">{friendlyAgentName(c.agent_id, c.role)}</span>
+                      <span className="font-mono text-xs text-neutral-500">({shortId(c.agent_id)})</span>
+                      <span className="text-neutral-600">stopped</span>
+                      <span className="text-neutral-400">&middot;</span>
+                      <span className="text-neutral-800 font-medium">{c.reason}</span>
                     </div>
-                  );
-                })}
+
+                    <a
+                      href="#/incidents"
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-medium shadow-2xs transition-colors"
+                    >
+                      <span>Review &rarr;</span>
+                    </a>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -575,7 +496,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
               <div className="mt-2 text-[26px] font-bold tabular-nums text-[var(--accent)]">
                 {preExecutionBlocks}
               </div>
-              <span className="text-[12px] text-[var(--text-2)]">Halted at Gateway</span>
+              <span className="text-[12px] text-[var(--text-2)]">Stopped before it ran</span>
             </div>
 
             <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
@@ -586,7 +507,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
               <div className="mt-2 text-[26px] font-bold tabular-nums text-rose-600">
                 {covertAlerts}
               </div>
-              <span className="text-[12px] text-[var(--text-2)]">SG-029 Flagged</span>
+              <span className="text-[12px] text-[var(--text-2)]">Secret data sends caught</span>
             </div>
 
             <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
@@ -598,7 +519,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 {circuitBreakerTripped ? (
                   <span className="text-rose-600">TRIGGERED</span>
                 ) : (
-                  <span className="text-[#1F7A45]">ARMED (Normal)</span>
+                  <span className="text-[#1F7A45]">Safety trigger: ready</span>
                 )}
               </div>
               <span className="text-[12px] text-[var(--text-2)]">
@@ -642,10 +563,12 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                         }`}
                       >
                         <div className="min-w-0">
-                          <div className="font-mono text-[13px] font-semibold text-[var(--text)] truncate">
-                            {shortId(id)}
+                          <div className="text-[13px] font-semibold text-[var(--text)] truncate">
+                            {friendlyAgentName(id, a.role)}
                           </div>
-                          <div className="text-[12px] text-[var(--text-2)] capitalize">{a.role}</div>
+                          <div className="font-mono text-[11px] text-[var(--text-3)]">
+                            {shortId(id)} &middot; <span className="capitalize">{a.role}</span>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -657,49 +580,20 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                             {isPaused ? "Stopped" : "Active"}
                           </span>
 
-                          {/* Direct Actions: Release / Keep contained when stopped, Pause when active */}
-                          {isPaused ? (
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-40"
-                                disabled={acting === id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleLiveDecide(id, "release");
-                                }}
-                                title={`Release ${id}`}
-                              >
-                                {acting === id ? "…" : "Release"}
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
-                                disabled={acting === id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleLiveDecide(id, "confirm");
-                                }}
-                                title={`Keep ${id} contained`}
-                              >
-                                Keep
-                              </button>
-                            </div>
-                          ) : (
-                            running && (
-                              <button
-                                type="button"
-                                className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
-                                disabled={acting === id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  operate(id);
-                                }}
-                                aria-label={`Pause ${id}`}
-                              >
-                                {acting === id ? "…" : "Pause"}
-                              </button>
-                            )
+                          {/* Pause button on hover when active */}
+                          {!isPaused && running && (
+                            <button
+                              type="button"
+                              className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
+                              disabled={acting === id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                operate(id);
+                              }}
+                              aria-label={`Pause ${id}`}
+                            >
+                              {acting === id ? "…" : "Pause"}
+                            </button>
                           )}
                         </div>
                       </li>
@@ -713,7 +607,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
 
             {/* Right Column: Feed with Actions / Alerts / Everything tabs */}
             <Card
-              title={`Live Telemetry (${displayCount.toLocaleString()})`}
+              title={`Live activity (${displayCount.toLocaleString()})`}
               actions={
                 <div className="flex items-center gap-3">
                   <button
@@ -723,14 +617,16 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   >
                     Clear feed
                   </button>
-                  <button
-                    type="button"
-                    className="text-[12px] font-medium text-rose-600 hover:underline disabled:opacity-40"
-                    onClick={handleResetAll}
-                    disabled={resetting}
-                  >
-                    {resetting ? "Resetting…" : "Reset All"}
-                  </button>
+                  {(userRole === "admin" || userRole === "local") && (
+                    <button
+                      type="button"
+                      className="text-[12px] font-medium text-rose-600 hover:underline disabled:opacity-40"
+                      onClick={handleResetAll}
+                      disabled={resetting}
+                    >
+                      {resetting ? "Resetting…" : "Reset All"}
+                    </button>
+                  )}
                 </div>
               }
             >
@@ -777,7 +673,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                     ? "Showing stopped actions and alerts"
                     : feedFilter === "alerts"
                     ? "Showing security alerts"
-                    : "Showing complete event telemetry"}
+                    : "Showing complete event activity"}
                   {selectedAgentFilter ? ` for ${shortId(selectedAgentFilter)}` : ""}
                 </div>
               </div>
@@ -850,7 +746,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   })}
                 </ol>
               ) : (
-                <Empty>No events in feed. Start a scenario run above to observe live telemetry.</Empty>
+                <Empty>No events in feed. Start a scenario run above to observe live activity.</Empty>
               )}
             </Card>
           </div>
