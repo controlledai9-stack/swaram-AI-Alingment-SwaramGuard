@@ -158,8 +158,8 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     api.whoami().then((w) => setUserRole(w.role)).catch(() => setUserRole("local"));
   }, []);
 
-  // Feed filter: contaminants, blocks, detections, all (critical first, all at the end)
-  const [feedFilter, setFeedFilter] = useState<"contaminant" | "block" | "detection" | "all">("all");
+  // Feed filter: actions (default: blocks, containments, detections), containment, blocks, detections, all
+  const [feedFilter, setFeedFilter] = useState<"actions" | "containment" | "block" | "detection" | "all">("actions");
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string | null>(null);
 
   // Derive live KPIs
@@ -281,17 +281,15 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
           if (agentId !== selectedAgentFilter) return false;
         }
 
-        // Category filter: Contaminants (critical) -> Blocks -> Detections -> All
-        if (feedFilter === "contaminant") {
-          return (
+        // Category filter: Actions (default) -> Containment -> Blocks -> Detections -> All
+        const isContainment = (
+
             m.type === "quarantine" ||
             m.type === "containment" ||
             (m.data && (m.data.trigger === "circuit_breaker" || String(m.data.explanation || "").includes("circuit breaker"))) ||
             (m.type === "detection" && (m.data.severity === "critical" || m.data.severity === "high" || m.data.rule_id === "SG-029"))
-          );
-        }
-        if (feedFilter === "block") {
-          return (
+        );
+        const isBlock = (
             m.type === "event" &&
             (m.data.status === "denied" ||
               m.data.gateway_decision === "blocked" ||
@@ -300,11 +298,12 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   String(m.data.payload.gateway_reason).includes("pre-execution") ||
                   String(m.data.payload.gateway_reason).includes("not allowed") ||
                   String(m.data.payload.gateway_reason).includes("blocked"))))
-          );
-        }
-        if (feedFilter === "detection") {
-          return m.type === "detection";
-        }
+        );
+        const isDetection = m.type === "detection";
+        if (feedFilter === "actions") return Boolean(isContainment || isBlock || isDetection);
+        if (feedFilter === "containment") return Boolean(isContainment);
+        if (feedFilter === "block") return Boolean(isBlock);
+        if (feedFilter === "detection") return isDetection;
         return true; // all
       })
       .slice(-1000)
@@ -775,19 +774,30 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 </div>
               }
             >
-              {/* Filter pills: [Contaminants] · [Blocks] · [Detections] · [All] */}
+              {/* Filter pills: [Actions] · [Containment] · [Blocks] · [Detections] · [All] */}
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--hairline-subtle)] pb-3 text-[13px]">
                 <div className="inline-flex rounded-full bg-[var(--hairline-subtle)] p-0.5 text-[12px]">
                   <button
                     type="button"
-                    onClick={() => setFeedFilter("contaminant")}
+                    onClick={() => setFeedFilter("actions")}
                     className={`rounded-full px-3.5 py-1 font-medium transition-all ${
-                      feedFilter === "contaminant"
+                      feedFilter === "actions"
+                        ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
+                        : "text-[var(--text-2)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    Actions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedFilter("containment")}
+                    className={`rounded-full px-3.5 py-1 font-medium transition-all ${
+                      feedFilter === "containment"
                         ? "bg-rose-600 text-white shadow-xs"
                         : "text-[var(--text-2)] hover:text-[var(--text)]"
                     }`}
                   >
-                    Contaminants
+                    Containment
                   </button>
                   <button
                     type="button"
@@ -825,8 +835,10 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 </div>
 
                 <div className="text-[12px] text-[var(--text-3)]">
-                  {feedFilter === "contaminant"
-                    ? "Showing critical contaminants, quarantined agents, and high-risk leaks"
+                  {feedFilter === "actions"
+                    ? "Showing what SwarmGuard did: blocks, containments and detections"
+                    : feedFilter === "containment"
+                    ? "Showing containments, quarantined messages, and high-risk detections"
                     : feedFilter === "block"
                     ? "Showing actions stopped before execution by policy gateway"
                     : feedFilter === "detection"

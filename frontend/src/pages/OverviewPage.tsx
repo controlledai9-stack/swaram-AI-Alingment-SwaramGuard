@@ -9,18 +9,19 @@ import { friendlyAgentName } from "../lib/format";
 import { ArrowRight, ShieldCheck, ShieldAlert, Play, Check } from "lucide-react";
 
 export function OverviewPage() {
-  const { selectedRunId, runs, selectRun, refreshRuns } = useAppState();
+  const { selectedRunId, selectRun, refreshRuns } = useAppState();
   const alertsData = useRunData(api.alerts, selectedRunId);
-  const responsesData = useRunData(api.responses, selectedRunId);
   const agentsData = useRunData(api.agents, selectedRunId);
   const graphData = useRunData(api.graph, selectedRunId);
-  const reviewsData = useRunData(() => api.reviews("pending"), "pending-reviews");
+  // Everything on the Dashboard is about the selected run, including its reviews.
+  const reviewsData = useRunData((runId) => api.reviews(undefined, runId), selectedRunId);
+  const eventsData = useRunData(api.normalizedEvents, selectedRunId);
 
-  const currentRun = runs.find((r) => r.run_id === selectedRunId);
   const alerts = alertsData.data ?? [];
-  const responses = responsesData.data ?? [];
   const agents = agentsData.data ?? [];
-  const pendingReviews = reviewsData.data ?? [];
+  const runReviews = reviewsData.data ?? [];
+  const pendingReviews = runReviews.filter((r) => r.status === "pending");
+  const events = eventsData.data ?? [];
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [startingDemo, setStartingDemo] = useState(false);
@@ -43,13 +44,23 @@ export function OverviewPage() {
   const highCount = alerts.filter((a) => a.severity === "high").length;
   const medCount = alerts.filter((a) => a.severity === "medium").length;
 
-  // Metric 1: Stopped before it ran (actions denied strictly by pre-execution policy gate)
-  const stoppedBeforeRanCount = responses.filter(
-    (r) => r.mode === "enforced" && (r.outcome === "blocked" || r.decision === "block")
-  ).length;
+  // Metric 1: Stopped before it ran = actions the gate actually refused in this run.
+  const stoppedBeforeRanCount = events.filter((e) => e.status === "denied").length;
 
-  // Metric 2: Agents stopped
-  const agentsStoppedCount = currentRun?.labels.malicious_agent_ids.length ?? (alerts.length > 0 ? 2 : 0);
+  // Metric 2: Agents stopped = agents SwarmGuard paused or held (each containment opens a review item).
+  const agentsStoppedCount = new Set(
+    runReviews.filter((r) => r.kind === "paused_agent" || r.kind === "held_egress").map((r) => r.agent_id)
+  ).size;
+
+  // Harmful actions that actually ran: high/critical alert evidence that completed (status success).
+  const harmfulExecutedCount = useMemo(() => {
+    const ids = new Set(alerts.filter((a) => a.severity === "high" || a.severity === "critical").flatMap((a) => a.event_ids ?? []));
+    return events.filter(
+      (e) => ids.has(e.event_id) && e.status === "success" &&
+        ["data_transfer", "resource_access", "tool_call"].includes(e.event_type)
+    ).length;
+  }, [alerts, events]);
+  const untrustedRead = events.some((e) => Boolean((e.payload as Record<string, unknown> | undefined)?.untrusted));
 
   // Metric 4: Can't check (SG-030 low-severity claims where monitor lost events)
   const cantCheckCount = alerts.filter(
@@ -61,17 +72,33 @@ export function OverviewPage() {
         a.reason?.toLowerCase().includes("lost events"))
   ).length;
 
+  // Incident sequence, built from what actually happened in this run (never a fixed story).
+  const timeline = useMemo(() => {
+    const steps: { label: string; tone: string }[] = [];
+    const red = "bg-rose-500/10 text-rose-700 border-rose-300";
+    const amber = "bg-amber-500/10 text-amber-700 border-amber-300";
+    const blue = "bg-[var(--accent)]/10 text-[var(--accent)] border-[var(--accent)]/30";
+    const grey = "bg-neutral-100 text-neutral-800 border-neutral-300";
+    if (untrustedRead) steps.push({ label: "Untrusted content read", tone: red });
+    if (topAlert) steps.push({ label: `Detected: ${topAlert.rule_name}`, tone: amber });
+    if (stoppedBeforeRanCount) steps.push({ label: `${stoppedBeforeRanCount} action${stoppedBeforeRanCount === 1 ? "" : "s"} stopped before running`, tone: blue });
+    if (harmfulExecutedCount) steps.push({ label: `${harmfulExecutedCount} harmful action${harmfulExecutedCount === 1 ? "" : "s"} ran`, tone: red });
+    if (agentsStoppedCount) steps.push({ label: `${agentsStoppedCount} agent${agentsStoppedCount === 1 ? "" : "s"} paused or held`, tone: grey });
+    if (pendingReviews.length) steps.push({ label: `${pendingReviews.length} waiting for a human decision`, tone: grey });
+    return steps;
+  }, [untrustedRead, topAlert, stoppedBeforeRanCount, harmfulExecutedCount, agentsStoppedCount, pendingReviews.length]);
+
   // Loading and selection states
   const isNoRun = !selectedRunId;
   const isCleanRun = !isNoRun && totalIncidents === 0;
   const isThreatRun = !isNoRun && totalIncidents > 0;
 
-  // Start live demo handler (worm scenario)
+  // Start live demo handler (scripted leak chain: detection, containment and a decision, no model needed)
   async function handleStartDemo() {
     setStartingDemo(true);
     try {
       const r = await api.startRun({
-        scenario_id: "worm_impersonation",
+        scenario_id: "coordinated_leakage",
         agent_count: 5,
         seed: Math.floor(Math.random() * 1000),
         gateway_mode: "monitor",
@@ -109,8 +136,8 @@ export function OverviewPage() {
     if (rule === "SG-028") {
       return "Malicious prompt injection detected inside ingested tool output.";
     }
-    if (rule === "SG-030") {
-      return "Agent claimed to call an approved API, but actually contacted an unverified destination.";
+    if (rule === "SG-030") {  // the reason already says which claim was false and how
+      return topAlert.reason || "An agent's report of its own actions doesn't match what was recorded.";
     }
     return topAlert.reason || "Suspicious behavior detected outside declared safety policies.";
   }, [topAlert]);
@@ -185,14 +212,18 @@ export function OverviewPage() {
                 ) : (
                   `${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} · ${agentsStoppedCount} agent${
                     agentsStoppedCount === 1 ? "" : "s"
-                  } stopped · 0 harmful actions executed`
+                  } stopped · ${harmfulExecutedCount} harmful action${harmfulExecutedCount === 1 ? "" : "s"} executed`
                 )}
               </h2>
 
               <p className="mt-2 text-[15px] text-[var(--text-2)] leading-relaxed">
                 {isCleanRun
                   ? `All participating agents in run ${selectedRunId} operated strictly within approved boundaries.`
-                  : "All malicious actions were intercepted before execution. The swarm was protected from cascading failure."}
+                  : harmfulExecutedCount === 0
+                  ? "Every harmful action in this run was stopped before it ran."
+                  : `${harmfulExecutedCount} harmful action${harmfulExecutedCount === 1 ? " ran" : "s ran"} before ${
+                      harmfulExecutedCount === 1 ? "it was" : "they were"
+                    } caught (the gateway was not enforcing for ${harmfulExecutedCount === 1 ? "it" : "them"}); see the incident for what to do.`}
               </p>
             </div>
 
@@ -303,21 +334,12 @@ export function OverviewPage() {
             Incident Sequence
           </span>
           <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-[var(--text)]">
-            <span className="rounded-full bg-rose-500/10 text-rose-700 px-3 py-1 border border-rose-300">
-              Malicious prompt received
-            </span>
-            <span className="text-[var(--text-3)]">&rarr;</span>
-            <span className="rounded-full bg-amber-500/10 text-amber-700 px-3 py-1 border border-amber-300">
-              Safety trigger fired
-            </span>
-            <span className="text-[var(--text-3)]">&rarr;</span>
-            <span className="rounded-full bg-[var(--accent)]/10 text-[var(--accent)] px-3 py-1 border border-[var(--accent)]/30">
-              Data send stopped
-            </span>
-            <span className="text-[var(--text-3)]">&rarr;</span>
-            <span className="rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 border border-neutral-300">
-              Agent paused
-            </span>
+            {timeline.map((step, i) => (
+              <span key={step.label} className="flex items-center gap-2">
+                {i > 0 && <span className="text-[var(--text-3)]">&rarr;</span>}
+                <span className={`rounded-full px-3 py-1 border ${step.tone}`}>{step.label}</span>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -352,7 +374,7 @@ export function OverviewPage() {
       <footer className="border-t border-[var(--hairline-subtle)] pt-6 pb-2 text-[13px] text-[var(--text-2)] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Check size={16} className="text-[#1F7A45]" />
-          <span>Passed 7 of 10 industry safety checks &middot; 32,718 real secret data sends caught</span>
+          <span>OWASP agentic risks: 7 of 10 strongly covered, 3 partly &middot; 32,718 covert-transfer payloads caught in a real swarm incident</span>
         </div>
         <a
           href="#/trust"
