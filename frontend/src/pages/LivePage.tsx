@@ -7,8 +7,9 @@ import { Card, CustomSelect, Empty, Segmented, StatusBanner, type Status } from 
 import { shortId } from "../lib/format";
 import { type LiveMessage, useLiveStream } from "../lib/live";
 import { useAppState } from "../state";
-import type { AgentCount } from "../types";
-import { Zap, ShieldAlert, Lock, Play, Square, Filter } from "lucide-react";
+import type { AgentCount, ReviewItem } from "../types";
+import { Zap, ShieldAlert, Lock, Play, Square, Filter, Check } from "lucide-react";
+import { DecisionCard } from "../components/DecisionCard";
 
 type AnyData = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -215,6 +216,50 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     }, [messages]);
 
   const [acting, setActing] = useState<string | null>(null);
+  const [inspectingAgentId, setInspectingAgentId] = useState<string | null>(null);
+  const [liveReviews, setLiveReviews] = useState<ReviewItem[]>([]);
+
+  const refreshLiveReviews = async () => {
+    try {
+      const items = await api.reviews("pending");
+      setLiveReviews(items);
+    } catch {}
+  };
+
+  useEffect(() => {
+    refreshLiveReviews();
+  }, [messages.length]);
+
+  // Direct In-Page Adjudication for Live Guard: Release or Keep Contained right here!
+  async function handleLiveDecide(agentId: string, decision: "release" | "confirm") {
+    setActing(agentId);
+    setStatus(null);
+    try {
+      let review = liveReviews.find((r) => r.agent_id === agentId);
+      if (!review) {
+        const fresh = await api.reviews("pending");
+        review = fresh.find((r) => r.agent_id === agentId);
+      }
+      if (review) {
+        await api.decideReview(review.review_id, decision, `Decided directly from Live Guard`, "Operator");
+      }
+      setStatus({
+        kind: "success",
+        message:
+          decision === "release"
+            ? `Agent ${shortId(agentId)} released successfully.`
+            : `Agent ${shortId(agentId)} confirmed contained.`,
+      });
+      await refreshLiveReviews();
+      if (inspectingAgentId === agentId) {
+        setInspectingAgentId(null);
+      }
+    } catch (e) {
+      setStatus({ kind: "error", message: (e as Error).message });
+    } finally {
+      setActing(null);
+    }
+  }
 
   // Emergency brake only: Pause agent or Stop run
   async function operate(agentId: string | null) {
@@ -423,7 +468,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
             )}
           </div>
 
-          {/* Pinned "Needs decision" Strip (Strictly links to Incidents; no decision buttons here) */}
+          {/* Pinned "Needs decision" Strip with Direct In-Page Actions */}
           {containedAgentsList.length > 0 && (
             <div className="rounded-[var(--r-card)] border border-rose-300 bg-rose-50/80 p-4 shadow-xs">
               <div className="flex items-center justify-between mb-2">
@@ -443,23 +488,68 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 </a>
               </div>
               <div className="divide-y divide-rose-200/70">
-                {containedAgentsList.map((c) => (
-                  <div key={c.agent_id} className="py-2 flex items-center justify-between text-[13px]">
-                    <div className="flex items-center gap-2">
-                      <span className="text-rose-600">⛔</span>
-                      <span className="font-mono font-semibold text-neutral-900">{shortId(c.agent_id)}</span>
-                      <span className="text-neutral-600">stopped</span>
-                      <span className="text-neutral-400">&middot;</span>
-                      <span className="text-neutral-800 font-medium">{c.reason}</span>
+                {containedAgentsList.map((c) => {
+                  const matchingReview = liveReviews.find((r) => r.agent_id === c.agent_id);
+                  const isInspecting = inspectingAgentId === c.agent_id;
+                  return (
+                    <div key={c.agent_id} className="py-2.5 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-rose-600">⛔</span>
+                          <span className="font-mono font-semibold text-neutral-900">{shortId(c.agent_id)}</span>
+                          <span className="text-neutral-600">stopped</span>
+                          <span className="text-neutral-400">&middot;</span>
+                          <span className="text-neutral-800 font-medium">{c.reason}</span>
+                        </div>
+
+                        {/* Direct In-Page Actions - No need to always leave Live Guard! */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleLiveDecide(c.agent_id, "release")}
+                            disabled={acting === c.agent_id}
+                            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-medium shadow-2xs transition-colors disabled:opacity-50"
+                          >
+                            <Check size={12} strokeWidth={2.5} />
+                            <span>{acting === c.agent_id ? "…" : "Release"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleLiveDecide(c.agent_id, "confirm")}
+                            disabled={acting === c.agent_id}
+                            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-medium shadow-2xs transition-colors disabled:opacity-50"
+                          >
+                            <Lock size={12} strokeWidth={2} />
+                            <span>{acting === c.agent_id ? "…" : "Keep contained"}</span>
+                          </button>
+                          {matchingReview && (
+                            <button
+                              type="button"
+                              onClick={() => setInspectingAgentId(isInspecting ? null : c.agent_id)}
+                              className="text-[12px] font-medium text-neutral-700 hover:text-neutral-900 px-2.5 py-1 rounded-full bg-white border border-rose-300 shadow-2xs transition-colors"
+                            >
+                              {isInspecting ? "Hide details" : "Details"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expandable DecisionCard right inside Live Guard */}
+                      {isInspecting && matchingReview && (
+                        <div className="pt-2">
+                          <DecisionCard
+                            item={matchingReview}
+                            onDecide={async (reviewId, decision, note, reviewer) => {
+                              await api.decideReview(reviewId, decision, note, reviewer);
+                              await refreshLiveReviews();
+                              setInspectingAgentId(null);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <a
-                      href="#/incidents"
-                      className="text-[12px] font-semibold text-rose-700 hover:underline px-3 py-1 rounded-full bg-white border border-rose-300 shadow-2xs"
-                    >
-                      Review &rarr;
-                    </a>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -567,20 +657,49 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                             {isPaused ? "Stopped" : "Active"}
                           </span>
 
-                          {/* Emergency Pause on hover */}
-                          {running && !isPaused && (
-                            <button
-                              type="button"
-                              className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
-                              disabled={acting === id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                operate(id);
-                              }}
-                              aria-label={`Pause ${id}`}
-                            >
-                              {acting === id ? "…" : "Pause"}
-                            </button>
+                          {/* Direct Actions: Release / Keep contained when stopped, Pause when active */}
+                          {isPaused ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-40"
+                                disabled={acting === id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleLiveDecide(id, "release");
+                                }}
+                                title={`Release ${id}`}
+                              >
+                                {acting === id ? "…" : "Release"}
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
+                                disabled={acting === id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleLiveDecide(id, "confirm");
+                                }}
+                                title={`Keep ${id} contained`}
+                              >
+                                Keep
+                              </button>
+                            </div>
+                          ) : (
+                            running && (
+                              <button
+                                type="button"
+                                className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
+                                disabled={acting === id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  operate(id);
+                                }}
+                                aria-label={`Pause ${id}`}
+                              >
+                                {acting === id ? "…" : "Pause"}
+                              </button>
+                            )
                           )}
                         </div>
                       </li>
