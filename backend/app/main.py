@@ -196,7 +196,11 @@ def active_runs() -> list[dict[str, Any]]:
 
 
 @app.post("/api/live/reset")
-def reset_live_all(p: Pipeline = P) -> dict[str, Any]:
+def reset_live_all(request: Request, p: Pipeline = P) -> dict[str, Any]:
+    from app import auth
+    who = getattr(request.state, "principal", None)
+    if auth.enabled() and (who is None or who.role != "admin"):
+        raise HTTPException(403, "Resetting all swarm telemetry and containments requires admin role.")
     """Operator reset: clear live hub history, reset sequence counter, release all pending containments and unpause all agents."""
     import itertools
     from app.services.live_hub import HUB, ACTIVE_GUARDS, ACTIVE_STREAMS

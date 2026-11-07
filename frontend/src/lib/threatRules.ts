@@ -1,5 +1,5 @@
 /**
- * SwaramGuard 20-Rule Threat Detection Matrix & Telemetry Specification.
+ * SwaramGuard 30-Rule Threat Detection Matrix & Telemetry Specification.
  * Used by Simulator, Collector, Detector, and Dashboard.
  */
 
@@ -654,8 +654,8 @@ export const THREAT_RULES: ThreatRuleDef[] = [
     num: 29,
     name: "Covert staged transfer (Swarm Traces validated)",
     category: "data_access",
-    severity: "critical",
-    description: "Staged exfiltration via file/DB dead drops, base64/hex assemblies, decoder-plus-executor chains, or multi-agent drop points. Tested on 166,571 Swarm Traces rows; 32,718 real covert rows caught with 0 benign false alarms.",
+    severity: "high",
+    description: "Staged exfiltration via base64/hex assemblies, decoder-plus-executor chains, or multi-agent transfers. Tested on 166,571 Swarm Traces rows; 32,718 real covert rows caught with 0 benign false alarms.",
     simulatorTelemetry: {
       event_type: "data_transfer",
       action: "staged_transfer",
@@ -665,10 +665,31 @@ export const THREAT_RULES: ThreatRuleDef[] = [
     },
     collectorOptimization: {
       validationCheck: "Correlate staging file writes with subsequent network outbound connections.",
-      normalizationStep: "Link dead-drop write events to external destination transfer graphs.",
+      normalizationStep: "Link transfer events to external destination transfer graphs.",
       targetIndex: "staging_file + external_target",
     },
     detectionLayer: "Bayesian Graph",
+  },
+  {
+    id: "SG-030",
+    num: 30,
+    name: "Claimed tool call doesn't match reality",
+    category: "behaviour_intent",
+    severity: "high",
+    description: "Agent claims to have executed an approved action or payload, but actual telemetry reflects a different operation or unapproved destination (flagged as can't check when monitor lost events).",
+    simulatorTelemetry: {
+      event_type: "tool_call",
+      action: "verify_claim",
+      requiredFields: ["agent_id", "claimed_action", "actual_action"],
+      samplePayload: { claimed_action: "export_report", actual_action: "exfiltrate_keys" },
+      attackPattern: "Agent falsifies status report to deceive human operator and automated audit.",
+    },
+    collectorOptimization: {
+      validationCheck: "Cross-reference claimed tool invocation against observed raw gateway and kernel syscall logs.",
+      normalizationStep: "Flag discrepancy between claimed intent and actual destination.",
+      targetIndex: "agent_id + claimed_action",
+    },
+    detectionLayer: "Rule-based",
   },
   {
     id: "SG-010",

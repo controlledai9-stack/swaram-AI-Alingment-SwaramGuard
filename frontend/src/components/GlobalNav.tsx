@@ -11,7 +11,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", path: "#/", label: "Dashboard" },
   { id: "live", path: "#/live", label: "Live Guard" },
   { id: "incidents", path: "#/incidents", label: "Incidents" },
-  { id: "assurance", path: "#/assurance", label: "Assurance" },
+  { id: "trust", path: "#/trust", label: "Why trust us" },
   { id: "pipeline", path: "#/pipeline/simulator", label: "Pipeline" },
 ];
 
@@ -22,7 +22,7 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
     if (id === "dashboard" || id === "overview") return currentRoute === "" || currentRoute === "dashboard" || currentRoute === "overview" || currentRoute === "/";
     if (id === "live") return currentRoute.startsWith("live") || currentRoute.startsWith("swarm");
     if (id === "incidents") return currentRoute.startsWith("incidents") || currentRoute.startsWith("responses");
-    if (id === "assurance") return currentRoute.startsWith("assurance") || currentRoute.startsWith("owasp") || currentRoute.startsWith("coverage") || currentRoute.startsWith("evaluation");
+    if (id === "trust" || id === "assurance") return currentRoute.startsWith("trust") || currentRoute.startsWith("assurance") || currentRoute.startsWith("owasp") || currentRoute.startsWith("coverage") || currentRoute.startsWith("evaluation");
     if (id === "pipeline") return currentRoute.startsWith("pipeline") || currentRoute.startsWith("simulator") || currentRoute.startsWith("collector") || currentRoute.startsWith("detection");
     return currentRoute.startsWith(id);
   };

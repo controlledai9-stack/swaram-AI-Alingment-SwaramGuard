@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 RANK = {"viewer": 1, "operator": 2, "admin": 3}
 OPEN = {"/api/health"}  # liveness check only; says nothing about runs
-ADMIN_PREFIXES = ("/api/detection-rules", "/api/response-policies", "/api/detection/baseline")
+ADMIN_PREFIXES = ("/api/detection-rules", "/api/response-policies", "/api/detection/baseline", "/api/live/reset")
 
 
 @dataclass(frozen=True)

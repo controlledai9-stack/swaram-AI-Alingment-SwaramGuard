@@ -1,19 +1,18 @@
-import { ResponsesPage } from "./ResponsesPage";
-import { Segmented } from "../components/ui";
 import { useEffect, useState } from "react";
 import { useAppState, useRunData } from "../state";
 import { api } from "../api";
 import { PageHeader } from "../components/PageHeader";
 import { Pill } from "../components/Pill";
-import { ModePill } from "../components/ModePill";
 import { ScoreRing } from "../components/ScoreRing";
 import { EvidenceChip } from "../components/EvidenceChip";
 import { Drawer } from "../components/Drawer";
 import { Footnotes } from "../components/Footnotes";
-import { Card, Empty } from "../components/ui";
+import { Card, Empty, Segmented } from "../components/ui";
+import { DecisionCard } from "../components/DecisionCard";
 import { time } from "../lib/format";
 import { deriveIncidentTitle, getAgentRole } from "../lib/incidentHelper";
-import type { Alert, NormalizedEvent, ResponseAction } from "../types";
+import { useLiveStream } from "../lib/live";
+import type { Alert, NormalizedEvent, ReviewItem } from "../types";
 import { Check, Copy, ChevronDown, ChevronUp } from "lucide-react";
 
 function AgentRoleBadge({
@@ -30,34 +29,33 @@ function AgentRoleBadge({
       title={`Click to copy full ID: ${agentId}`}
     >
       <span className="capitalize">{role}</span>
-      <span
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           navigator.clipboard.writeText(agentId);
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.stopPropagation();
-            navigator.clipboard.writeText(agentId);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }
-        }}
-        className="cursor-pointer text-[var(--text-3)] hover:text-[var(--accent)] transition-opacity"
+        className="cursor-pointer text-[var(--text-3)] hover:text-[var(--accent)] transition-opacity ml-0.5"
         aria-label={`Copy full agent ID ${agentId}`}
       >
-        {copied ? <Check size={12} className="text-[var(--ok)]" /> : <Copy size={12} />}
-      </span>
+        {copied ? <Check size={12} className="text-[#1F7A45]" /> : <Copy size={12} />}
+      </button>
     </span>
   );
 }
 
-export function IncidentsPage({ initialAlertId, initialView = "alerts" }: { initialAlertId?: string; initialView?: "alerts" | "reviews" } = {}) {
-  const [mainView, setMainView] = useState<"alerts" | "reviews">(initialView);
+export function IncidentsPage({
+  initialAlertId,
+  initialView = "needs_decision",
+}: {
+  initialAlertId?: string;
+  initialView?: "needs_decision" | "all";
+} = {}) {
+  const [mainView, setMainView] = useState<"needs_decision" | "all">(initialView);
+  const [decisionFilter, setDecisionFilter] = useState<"pending" | "resolved">("pending");
+  const [reviewTick, setReviewTick] = useState(0);
 
   useEffect(() => {
     setMainView(initialView);
@@ -66,26 +64,39 @@ export function IncidentsPage({ initialAlertId, initialView = "alerts" }: { init
   const { selectedRunId } = useAppState();
   const alertsData = useRunData(api.alerts, selectedRunId);
   const normalizedData = useRunData(api.normalizedEvents, selectedRunId);
-  const responsesData = useRunData(api.responses, selectedRunId);
   const assessmentsData = useRunData(api.assessments, selectedRunId);
   const agentsData = useRunData(api.agents, selectedRunId);
 
+  // Reviews data (real-time stream subscription)
+  const reviewsData = useRunData(() => api.reviews(), "reviews", [reviewTick]);
+  const live = useLiveStream(undefined, 50);
+  const reviewMsgs = live.messages.filter((m) => m.type === "review");
+  const lastReview = reviewMsgs[reviewMsgs.length - 1]?.seq;
+  useEffect(() => {
+    if (lastReview) setReviewTick((t) => t + 1);
+  }, [lastReview]);
+
   const alerts = alertsData.data ?? [];
   const normalizedEvents = normalizedData.data ?? [];
-  const responses = responsesData.data ?? [];
   const assessments = assessmentsData.data ?? [];
   const agents = agentsData.data ?? [];
+  const reviews: ReviewItem[] = reviewsData.data ?? [];
+
+  const pendingReviews = reviews.filter((r) => r.status === "pending");
+  const resolvedReviews = reviews.filter((r) => r.status !== "pending");
 
   const [selectedId, setSelectedId] = useState<string | null>(initialAlertId ?? null);
-  const [activeTab, setActiveTab] = useState<"summary" | "evidence" | "response">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "evidence">("summary");
   const [drawerEvent, setDrawerEvent] = useState<NormalizedEvent | null>(null);
   const [drawerMissingId, setDrawerMissingId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedAgentId, setCopiedAgentId] = useState(false);
   const [scoringExpanded, setScoringExpanded] = useState(false);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Auto-select highest severity alert on load and reset when run changes
+  // Auto-select highest severity alert on load
   useEffect(() => {
     if (alerts.length > 0) {
       if (initialAlertId && alerts.some((a) => a.alert_id === initialAlertId)) {
@@ -98,24 +109,15 @@ export function IncidentsPage({ initialAlertId, initialView = "alerts" }: { init
     } else {
       setSelectedId(null);
     }
-  }, [alerts, initialAlertId, selectedRunId]);
+  }, [alerts, initialAlertId, selectedId]);
 
-  const currentAlert: Alert | null = alerts.find((a) => a.alert_id === selectedId) ?? alerts[0] ?? null;
+  const currentAlert = alerts.find((a) => a.alert_id === selectedId) ?? alerts[0];
+  const currentAssessment = assessments.find((ass) => ass.agent_id === currentAlert?.agent_ids[0]);
 
-  // Resolve matching response
-  const currentResponse: ResponseAction | undefined = responses.find(
-    (r) => r.alert_id === currentAlert?.alert_id
-  );
-
-  // Resolve involved agent assessments
-  const primaryAgentId = currentAlert?.agent_ids[0];
-  const currentAssessment = assessments.find((ass) => ass.agent_id === primaryAgentId);
-
-  // Open drawer for an event chip
   const handleChipClick = (eventId: string) => {
-    const found = normalizedEvents.find((e) => e.event_id === eventId);
-    if (found) {
-      setDrawerEvent(found);
+    const evt = normalizedEvents.find((e) => e.event_id === eventId);
+    if (evt) {
+      setDrawerEvent(evt);
       setDrawerMissingId(null);
     } else {
       setDrawerEvent(null);
@@ -138,423 +140,505 @@ export function IncidentsPage({ initialAlertId, initialView = "alerts" }: { init
     setTimeout(() => setCopiedAgentId(false), 2000);
   };
 
+  const handleDecide = async (reviewId: string, decision: "release" | "confirm", note?: string, reviewer?: string) => {
+    setDecidingId(reviewId);
+    setActionError(null);
+    try {
+      await api.decideReview(reviewId, decision, note, reviewer);
+      setReviewTick((t) => t + 1);
+    } catch (e) {
+      setActionError((e as Error).message);
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
+  // Check if an alert is an unverified SG-030 claim (lost telemetry)
+  const isUnverifiedClaim = (a: Alert) => {
+    return (
+      a.rule_id === "SG-030" &&
+      (a.severity === "low" ||
+        a.rule_name?.toLowerCase().includes("unverified") ||
+        a.reason?.toLowerCase().includes("unverified") ||
+        a.reason?.toLowerCase().includes("lost events"))
+    );
+  };
+
   return (
     <div className="space-y-8">
       <PageHeader
         title="Incidents."
-        subtitle="Forensic evidence chains, Bayesian threat attribution, and containment remediation queue."
+        subtitle="Investigate security incidents, inspect evidence, and decide whether to release or keep agents contained."
         actions={
           <div className="flex items-center gap-3">
             <Segmented
               value={mainView}
               onChange={(v) => {
                 setMainView(v);
-                if (v === "reviews") window.location.hash = "#/responses";
+                if (v === "all") window.location.hash = "#/incidents/all";
                 else window.location.hash = "#/incidents";
               }}
               options={[
-                { value: "alerts", label: "Forensic Alerts" },
-                { value: "reviews", label: "Remediation & Review Queue" },
+                { value: "needs_decision", label: `Needs decision (${pendingReviews.length})` },
+                { value: "all", label: "All incidents" },
               ]}
             />
           </div>
         }
       />
 
-      {mainView === "reviews" ? (
-        <div className="transition-opacity">
-          <ResponsesPage hideHeader />
+      {actionError && (
+        <div className="rounded-xl bg-rose-500/10 p-4 text-[14px] text-rose-700 border border-rose-500/20">
+          {actionError}
         </div>
-      ) : (
-        <>
-          {!alerts.length && (
-        <Card>
-          <Empty>
-            {selectedRunId
-              ? `No incidents detected in run ${selectedRunId}. Swarm operated within normal parameters.`
-              : "No scenario run is selected. Choose a run from the selector above or simulate a scenario."}
-          </Empty>
-        </Card>
       )}
 
-      {alerts.length > 0 && currentAlert && (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[380px_1fr]">
-          {/* Left Column: 380px List */}
-          <div className="space-y-3">
-            <div className="text-[14px] font-semibold text-[var(--text-2)] uppercase tracking-wider px-1">
-              {alerts.length} Incident{alerts.length === 1 ? "" : "s"} Detected
-            </div>
-
-            <div className="space-y-2 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
-              {alerts.map((a) => {
-                const isSelected = a.alert_id === currentAlert.alert_id;
-                const shortTitle = deriveIncidentTitle(a, agents, normalizedEvents);
-                return (
-                  <button
-                    key={a.alert_id}
-                    onClick={() => {
-                      setSelectedId(a.alert_id);
-                      window.location.hash = `#/incidents/${a.alert_id}`;
-                    }}
-                    type="button"
-                    className={`w-full rounded-[var(--r-card)] card p-4 text-left transition-all ${
-                      isSelected
-                        ? "!border-[var(--accent)] ring-1 ring-[var(--accent)] shadow-[var(--shadow-1)]"
-                        : "hover:border-[var(--text-3)]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Pill value={a.severity} />
-                        <span className="font-mono text-[12px] text-[var(--text-3)]">{a.rule_id}</span>
-                      </div>
-                      <span className="text-[12px] text-[var(--text-3)]">{time(a.created_at)}</span>
-                    </div>
-
-                    <div className="mt-2 text-[15px] font-semibold text-[var(--text)] line-clamp-2">
-                      {shortTitle}
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[14px] text-[var(--text-2)]">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[12px] text-[var(--text-3)]">Roles:</span>
-                        {a.agent_ids.map((id) => (
-                          <AgentRoleBadge
-                            key={id}
-                            agentId={id}
-                            role={getAgentRole(id, agents, normalizedEvents)}
-                          />
-                        ))}
-                      </div>
-                      <span className="font-mono text-[12px] text-[var(--accent)] font-medium shrink-0">
-                        {a.event_ids.length} evts
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+      {/* TAB 1: Needs decision (Default Tab) */}
+      {mainView === "needs_decision" && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="max-w-2xl text-[14px] leading-relaxed text-[var(--text-2)]">
+              Every agent that was stopped by a safety trigger or policy rule waits here for your decision.
+              <strong> Release</strong> allows the agent to resume immediately; <strong>Keep contained</strong> keeps it paused.
+            </p>
+            <Segmented
+              size="sm"
+              value={decisionFilter}
+              onChange={setDecisionFilter}
+              options={[
+                { value: "pending", label: `Needs decision (${pendingReviews.length})` },
+                { value: "resolved", label: `Resolved (${resolvedReviews.length})` },
+              ]}
+            />
           </div>
 
-          {/* Right Column: Incident Detail */}
-          <div className="rounded-[var(--r-tile)] card p-8 shadow-[var(--shadow-1)]">
-            {/* Header with Derived Title and Score Ring */}
-            <div className="flex flex-wrap items-start justify-between gap-6 border-b border-[var(--hairline-subtle)] pb-6">
-              <div className="min-w-0 max-w-xl">
-                <div className="flex items-center gap-2.5">
-                  <Pill value={currentAlert.severity} />
-                  <span className="font-mono text-[14px] text-[var(--text-3)]">{currentAlert.rule_id}</span>
-                  <span className="text-[14px] text-[var(--text-2)]">&middot; Detected {time(currentAlert.created_at)}</span>
+          {decisionFilter === "pending" ? (
+            pendingReviews.length > 0 ? (
+              <div className="space-y-4">
+                {pendingReviews.map((item) => (
+                  <DecisionCard
+                    key={item.review_id}
+                    item={item}
+                    agents={agents}
+                    alerts={alerts}
+                    onDecide={handleDecide}
+                    busy={decidingId === item.review_id}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[var(--r-card)] card p-10 text-center shadow-[var(--shadow-1)] border border-[var(--hairline)]">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-[#1F7A45] mb-3">
+                  <Check size={24} />
                 </div>
-                <h2 className="mt-3 text-[26px] sm:text-[30px] font-semibold leading-tight tracking-tight text-[var(--text)]">
-                  {deriveIncidentTitle(currentAlert, agents, normalizedEvents)}
-                </h2>
-                <div className="mt-3 text-[14px] text-[var(--text-2)] flex flex-wrap items-center gap-2">
-                  <span>Rule: <strong className="text-[var(--text)]">{currentAlert.rule_name}</strong></span>
-                  <span>&middot;</span>
-                  <span>Target: <code className="font-mono text-[13px] text-[var(--text)]">{currentAlert.resource}</code></span>
-                  <span>&middot;</span>
-                  <span>Roles:</span>
-                  {currentAlert.agent_ids.map((id) => (
-                    <AgentRoleBadge
-                      key={id}
-                      agentId={id}
-                      role={getAgentRole(id, agents, normalizedEvents)}
-                    />
-                  ))}
+                <h3 className="text-[17px] font-semibold text-[var(--text)]">All agents operating safely</h3>
+                <p className="mt-1 text-[14px] text-[var(--text-2)] max-w-md mx-auto">
+                  No agents are currently stopped or awaiting human review. The swarm is running within normal parameters.
+                </p>
+              </div>
+            )
+          ) : (
+            resolvedReviews.length > 0 ? (
+              <div className="space-y-4">
+                {resolvedReviews.map((item) => (
+                  <DecisionCard
+                    key={item.review_id}
+                    item={item}
+                    agents={agents}
+                    alerts={alerts}
+                    onDecide={handleDecide}
+                    busy={decidingId === item.review_id}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <Empty>No resolved decisions yet.</Empty>
+              </Card>
+            )
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: All incidents (Read-only forensics) */}
+      {mainView === "all" && (
+        <>
+          {!alerts.length && (
+            <Card>
+              <Empty>
+                {selectedRunId
+                  ? `No incidents detected in run ${selectedRunId}. Swarm operated within normal parameters.`
+                  : "No scenario run is selected. Choose a run from the selector above or run a scenario."}
+              </Empty>
+            </Card>
+          )}
+
+          {alerts.length > 0 && currentAlert && (
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[380px_1fr]">
+              {/* Left Column: 380px Alert List */}
+              <div className="space-y-3">
+                <div className="text-[14px] font-semibold text-[var(--text-2)] uppercase tracking-wider px-1">
+                  {alerts.length} Incident{alerts.length === 1 ? "" : "s"} Recorded
                 </div>
-              </div>
 
-              {/* ScoreRing with explicit Alert confidence label */}
-              <div className="flex flex-col items-center">
-                <ScoreRing
-                  score={currentAssessment?.risk ?? (currentAlert.severity === "critical" ? 0.95 : currentAlert.severity === "high" ? 0.82 : 0.6)}
-                  severity={currentAlert.severity}
-                  label="Alert confidence"
-                />
-                <span className="mt-2 text-[12px] font-medium text-[var(--text-3)] uppercase tracking-wider">
-                  Alert confidence
-                </span>
-              </div>
-            </div>
+                <div className="space-y-2 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
+                  {alerts.map((a) => {
+                    const isSelected = a.alert_id === currentAlert.alert_id;
+                    const shortTitle = deriveIncidentTitle(a, agents, normalizedEvents);
+                    const unverified = isUnverifiedClaim(a);
 
-            {/* Sticky Sub-tabs: Summary · Evidence · Response */}
-            <div className="mt-6 flex border-b border-[var(--hairline-subtle)]">
-              <div className="flex gap-6">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("summary")}
-                  className={`pb-3 text-[14px] font-medium transition-colors relative ${
-                    activeTab === "summary" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  Summary
-                  {activeTab === "summary" && (
-                    <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--accent)]" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("evidence")}
-                  className={`pb-3 text-[14px] font-medium transition-colors relative ${
-                    activeTab === "evidence" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  Evidence ({currentAlert.event_ids.length})
-                  {activeTab === "evidence" && (
-                    <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--accent)]" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("response")}
-                  className={`pb-3 text-[14px] font-medium transition-colors relative ${
-                    activeTab === "response" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  Response & Mitigation
-                  {activeTab === "response" && (
-                    <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--accent)]" />
-                  )}
-                </button>
-              </div>
-            </div>
+                    // Find if any agent in this alert has a recorded decision
+                    const relatedReview = reviews.find((r) => a.agent_ids?.includes(r.agent_id));
 
-            {/* Tab 1: Summary */}
-            {activeTab === "summary" && (
-              <div className="mt-6 space-y-6">
-                <div>
-                  <h3 className="text-[16px] font-semibold text-[var(--text)]">What happened</h3>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {currentAlert.event_ids.map((id, idx) => {
-                      const matched = normalizedEvents.find((e) => e.event_id === id);
-                      return (
-                        <div key={id} className="flex items-center gap-2">
-                          <EvidenceChip
-                            eventId={id}
-                            action={matched?.action}
-                            onClick={handleChipClick}
-                            className="incident-evidence-chip"
-                          />
-                          {idx < currentAlert.event_ids.length - 1 && (
-                            <span className="text-[var(--text-3)]" aria-hidden>&rarr;</span>
+                    return (
+                      <button
+                        key={a.alert_id}
+                        onClick={() => {
+                          setSelectedId(a.alert_id);
+                          window.location.hash = `#/incidents/${a.alert_id}`;
+                        }}
+                        type="button"
+                        className={`w-full rounded-[var(--r-card)] card p-4 text-left transition-all ${
+                          unverified
+                            ? "border-stone-300 bg-stone-500/5 hover:border-stone-400"
+                            : isSelected
+                            ? "!border-[var(--accent)] ring-1 ring-[var(--accent)] shadow-[var(--shadow-1)]"
+                            : "hover:border-[var(--text-3)]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {unverified ? (
+                              <span className="rounded-full bg-stone-500/10 px-2 py-0.5 text-[11px] font-medium text-stone-600 border border-stone-300">
+                                Can&apos;t check
+                              </span>
+                            ) : (
+                              <Pill value={a.severity} />
+                            )}
+                            <span className="font-mono text-[12px] text-[var(--text-3)]">{a.rule_id}</span>
+                          </div>
+                          <span className="text-[12px] text-[var(--text-3)]">{time(a.created_at)}</span>
+                        </div>
+
+                        <div className="mt-2 text-[15px] font-semibold text-[var(--text)] line-clamp-2">
+                          {shortTitle}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[14px] text-[var(--text-2)]">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[12px] text-[var(--text-3)]">Roles:</span>
+                            {a.agent_ids.map((id) => (
+                              <AgentRoleBadge
+                                key={id}
+                                agentId={id}
+                                role={getAgentRole(id, agents, normalizedEvents)}
+                              />
+                            ))}
+                          </div>
+                          {relatedReview && relatedReview.status !== "pending" && (
+                            <span
+                              className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                                relatedReview.status === "released"
+                                  ? "bg-emerald-500/10 text-[#1F7A45]"
+                                  : "bg-rose-500/10 text-rose-700"
+                              }`}
+                            >
+                              {relatedReview.status === "released" ? "Released" : "Kept contained"}
+                            </span>
                           )}
                         </div>
-                      );
-                    })}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Column: Incident Detail */}
+              <div className="rounded-[var(--r-tile)] card p-8 shadow-[var(--shadow-1)]">
+                {/* Header with Title and Score Ring */}
+                <div className="flex flex-wrap items-start justify-between gap-6 border-b border-[var(--hairline-subtle)] pb-6">
+                  <div className="min-w-0 max-w-xl">
+                    <div className="flex items-center gap-2.5">
+                      {isUnverifiedClaim(currentAlert) ? (
+                        <span className="rounded-full bg-stone-500/10 px-2.5 py-0.5 text-[12px] font-medium text-stone-700 border border-stone-300">
+                          Can&apos;t check: monitor lost events
+                        </span>
+                      ) : (
+                        <Pill value={currentAlert.severity} />
+                      )}
+                      <span className="font-mono text-[14px] text-[var(--text-3)]">{currentAlert.rule_id}</span>
+                      <span className="text-[14px] text-[var(--text-2)]">&middot; Detected {time(currentAlert.created_at)}</span>
+                    </div>
+                    <h2 className="mt-3 text-[26px] sm:text-[30px] font-semibold leading-tight tracking-tight text-[var(--text)]">
+                      {deriveIncidentTitle(currentAlert, agents, normalizedEvents)}
+                    </h2>
+                    <div className="mt-3 text-[14px] text-[var(--text-2)] flex flex-wrap items-center gap-2">
+                      <span>Rule: <strong className="text-[var(--text)]">{currentAlert.rule_name}</strong></span>
+                      <span>&middot;</span>
+                      <span>Target: <code className="font-mono text-[13px] text-[var(--text)]">{currentAlert.resource}</code></span>
+                      <span>&middot;</span>
+                      <span>Roles:</span>
+                      {currentAlert.agent_ids.map((id) => (
+                        <AgentRoleBadge
+                          key={id}
+                          agentId={id}
+                          role={getAgentRole(id, agents, normalizedEvents)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-2 text-[14px] text-[var(--text-3)]">
-                    Click any event chip to inspect its raw JSON payload in the side drawer.
+
+                  {/* ScoreRing */}
+                  <div className="flex flex-col items-center">
+                    <ScoreRing
+                      score={currentAssessment?.risk ?? (currentAlert.severity === "critical" ? 0.95 : currentAlert.severity === "high" ? 0.82 : 0.6)}
+                      severity={isUnverifiedClaim(currentAlert) ? "low" : currentAlert.severity}
+                      label="Alert confidence"
+                    />
+                    <span className="mt-2 text-[12px] font-medium text-[var(--text-3)] uppercase tracking-wider">
+                      Confidence
+                    </span>
                   </div>
                 </div>
 
-                <div className="border-t border-[var(--hairline-subtle)] pt-4">
-                  <h3 className="text-[16px] font-semibold text-[var(--text)]">Why we flagged it</h3>
-                  <p className="mt-2 text-[14px] leading-relaxed text-[var(--text-2)]">
-                    {currentAlert.reason}. This behavior violated declared role permissions and established normal communication baselines across the swarm.
-                  </p>
+                {/* Sub-tabs: Summary · Evidence */}
+                <div className="mt-6 flex border-b border-[var(--hairline-subtle)]">
+                  <div className="flex gap-6">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("summary")}
+                      className={`pb-3 text-[14px] font-medium transition-colors relative ${
+                        activeTab === "summary" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
+                      }`}
+                    >
+                      Summary
+                      {activeTab === "summary" && (
+                        <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--accent)]" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("evidence")}
+                      className={`pb-3 text-[14px] font-medium transition-colors relative ${
+                        activeTab === "evidence" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
+                      }`}
+                    >
+                      Evidence ({currentAlert.event_ids.length})
+                      {activeTab === "evidence" && (
+                        <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--accent)]" />
+                      )}
+                    </button>
+                  </div>
+                </div>
 
-                  {/* Collapsible Bayesian Explanation */}
-                  {currentAssessment && (
-                    <div className="mt-4 rounded-xl card-subtle p-4">
-                      <button
-                        onClick={() => setScoringExpanded((x) => !x)}
-                        type="button"
-                        className="flex w-full items-center justify-between text-[14px] font-medium text-[var(--text)]"
-                      >
-                        <span>How this was scored: Bayesian belief update & System-1 anomaly</span>
-                        {scoringExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                      </button>
-
-                      {scoringExpanded && (
-                        <div className="mt-3 space-y-3 border-t border-[var(--hairline-subtle)] pt-3 text-[14px]">
-                          <div>
-                            <span className="text-[var(--text-3)]">Probability transition:</span>{" "}
-                            <strong>{(currentAssessment.prior * 100).toFixed(0)}% prior</strong> &rarr;{" "}
-                            <strong className="text-[var(--crit)]">{(currentAssessment.risk * 100).toFixed(0)}% posterior</strong> (<span className="font-semibold text-[var(--text)]">Agent risk</span>).
-                          </div>
-
-                          {currentAssessment.evidence.length > 0 && (
-                            <div>
-                              <div className="font-medium text-[var(--text)]">Contributing factors:</div>
-                              <ul className="mt-1 list-disc pl-5 text-[var(--text-2)] space-y-0.5">
-                                {currentAssessment.evidence.map((ev, i) => (
-                                  <li key={i}>{ev}</li>
-                                ))}
-                              </ul>
+                {/* Tab 1: Summary */}
+                {activeTab === "summary" && (
+                  <div className="mt-6 space-y-6">
+                    <div>
+                      <h3 className="text-[16px] font-semibold text-[var(--text)]">What happened</h3>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {currentAlert.event_ids.map((id, idx) => {
+                          const matched = normalizedEvents.find((e) => e.event_id === id);
+                          return (
+                            <div key={id} className="flex items-center gap-2">
+                              <EvidenceChip
+                                eventId={id}
+                                action={matched?.action}
+                                onClick={handleChipClick}
+                                className="incident-evidence-chip"
+                              />
+                              {idx < currentAlert.event_ids.length - 1 && (
+                                <span className="text-[var(--text-3)]" aria-hidden>&rarr;</span>
+                              )}
                             </div>
-                          )}
+                          );
+                        })}
+                      </div>
+                      <div className="mt-2 text-[14px] text-[var(--text-3)]">
+                        Click any event chip to inspect its raw JSON payload in the side drawer.
+                      </div>
+                    </div>
 
-                          {currentAssessment.best_explanation && (
-                            <div>
-                              <div className="font-medium text-[var(--text)]">Abductive hypothesis:</div>
-                              <div className="mt-1 rounded-md card p-3 text-[var(--text-2)] text-[14px] leading-relaxed">
-                                {currentAssessment.best_explanation}
+                    <div className="border-t border-[var(--hairline-subtle)] pt-4">
+                      <h3 className="text-[16px] font-semibold text-[var(--text)]">Why it was flagged</h3>
+                      <p className="mt-2 text-[14px] leading-relaxed text-[var(--text-2)]">
+                        {currentAlert.reason}. This behavior violated safe operational boundaries.
+                      </p>
+
+                      {/* Collapsible Bayesian Explanation */}
+                      {currentAssessment && (
+                        <div className="mt-4 rounded-xl card-subtle p-4">
+                          <button
+                            onClick={() => setScoringExpanded((x) => !x)}
+                            type="button"
+                            className="flex w-full items-center justify-between text-[14px] font-medium text-[var(--text)]"
+                          >
+                            <span>Why it was flagged: how this score was calculated</span>
+                            {scoringExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </button>
+
+                          {scoringExpanded && (
+                            <div className="mt-3 space-y-3 border-t border-[var(--hairline-subtle)] pt-3 text-[14px]">
+                              <div>
+                                <span className="text-[var(--text-3)]">Risk progression:</span>{" "}
+                                <strong>{(currentAssessment.prior * 100).toFixed(0)}% base prior</strong> &rarr;{" "}
+                                <strong className="text-[var(--crit)]">{(currentAssessment.risk * 100).toFixed(0)}% risk</strong>.
                               </div>
+
+                              {currentAssessment.evidence.length > 0 && (
+                                <div>
+                                  <div className="font-medium text-[var(--text)]">Contributing factors:</div>
+                                  <ul className="mt-1 list-disc pl-5 text-[var(--text-2)] space-y-0.5">
+                                    {currentAssessment.evidence.map((ev, i) => (
+                                      <li key={i}>{ev}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {currentAssessment.best_explanation && (
+                                <div>
+                                  <div className="font-medium text-[var(--text)]">Most likely explanation:</div>
+                                  <div className="mt-1 rounded-md card p-3 text-[var(--text-2)] text-[14px] leading-relaxed">
+                                    {currentAssessment.best_explanation}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Tab 2: Evidence */}
-            {activeTab === "evidence" && (
-              <div className="mt-6 space-y-4">
-                <div className="text-[14px] text-[var(--text-2)]">
-                  The detector correlated the following ordered events as direct evidence for this incident:
-                </div>
-
-                <div className="divide-y divide-[var(--hairline-subtle)] rounded-xl card overflow-hidden">
-                  {currentAlert.event_ids.map((id, idx) => {
-                    const evt = normalizedEvents.find((e) => e.event_id === id);
-                    const role = evt ? (evt.agent_role || getAgentRole(evt.agent_id, agents, normalizedEvents)) : "unknown";
-                    return (
-                      <div
-                        key={id}
-                        onClick={() => handleChipClick(id)}
-                        className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-[var(--card-alt)] incident-evidence-row"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--card-alt)] font-mono text-[12px] text-[var(--text-2)]">
-                            {idx + 1}
-                          </span>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-[14px] font-semibold text-[var(--accent)]">
-                                {id}
-                              </span>
-                              <span className="rounded-md card px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-2)] capitalize">
-                                {role}
-                              </span>
-                            </div>
-                            <div className="text-[14px] text-[var(--text-2)]">
-                              {evt ? `${evt.event_type} &middot; action: ${evt.action}` : "Raw telemetry event"}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <div className="font-mono text-[12px] text-[var(--text-3)]">
-                            {evt?.timestamp ? time(evt.timestamp) : "—"}
-                          </div>
-                          <span className="text-[12px] font-medium text-[var(--accent)]">
-                            Inspect JSON &rarr;
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Tab 3: Response & Mitigation */}
-            {activeTab === "response" && (
-              <div className="mt-6 space-y-4">
-                {currentResponse ? (
-                  <div className="rounded-xl card p-6 space-y-4 border border-[var(--hairline-subtle)]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[14px] font-semibold text-[var(--text)]">Recommended Action:</span>
-                        <ModePill mode={currentResponse.mode} decision={currentResponse.decision} outcome={currentResponse.outcome} />
-                      </div>
-                      <span className="text-[12px] text-[var(--text-3)]">
-                        Policy ID: <code className="font-mono">{currentResponse.policy_id}</code>
-                      </span>
-                    </div>
-
-                    <p className="text-[14px] leading-relaxed text-[var(--text-2)]">
-                      {currentResponse.note || "Automated containment policy evaluated against gateway rules."}
-                    </p>
-
-                    <div className="border-t border-[var(--hairline-subtle)] pt-3 text-[14px] text-[var(--text-2)]">
-                      <div>
-                        <strong>Involved Agents:</strong>{" "}
-                        <span className="font-mono">{currentResponse.agent_ids.join(", ")}</span>
-                      </div>
-                      <div className="mt-1">
-                        <strong>Targeted Events:</strong>{" "}
-                        <span className="font-mono">{currentResponse.event_ids.join(", ")}</span>
-                      </div>
-                    </div>
                   </div>
-                ) : (
-                  <div className="rounded-xl card-subtle p-6 text-center text-[14px] text-[var(--text-2)]">
-                    No automated response recorded for this incident yet.
+                )}
+
+                {/* Tab 2: Evidence */}
+                {activeTab === "evidence" && (
+                  <div className="mt-6 space-y-4">
+                    <div className="text-[14px] text-[var(--text-2)]">
+                      The security monitor verified the following ordered events as direct evidence for this incident:
+                    </div>
+
+                    <div className="divide-y divide-[var(--hairline-subtle)] rounded-xl card overflow-hidden">
+                      {currentAlert.event_ids.map((id, idx) => {
+                        const evt = normalizedEvents.find((e) => e.event_id === id);
+                        const role = evt ? (evt.agent_role || getAgentRole(evt.agent_id, agents, normalizedEvents)) : "unknown";
+                        return (
+                          <div
+                            key={id}
+                            onClick={() => handleChipClick(id)}
+                            className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-[var(--card-alt)] incident-evidence-row"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--card-alt)] font-mono text-[12px] text-[var(--text-2)]">
+                                {idx + 1}
+                              </span>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-[14px] font-semibold text-[var(--accent)]">
+                                    {id}
+                                  </span>
+                                  <span className="rounded-md card px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-2)] capitalize">
+                                    {role}
+                                  </span>
+                                </div>
+                                <div className="text-[14px] text-[var(--text-2)]">
+                                  {evt ? `${evt.event_type} &middot; action: ${evt.action}` : "Raw event"}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-mono text-[12px] text-[var(--text-3)]">
+                                {evt?.timestamp ? time(evt.timestamp) : "—"}
+                              </div>
+                              <span className="text-[12px] font-medium text-[var(--accent)]">
+                                Inspect JSON &rarr;
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Slide-over Drawer for Raw Event JSON */}
+      {/* Side Drawer for Raw Event Details */}
       <Drawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        title={drawerEvent ? `Event ${drawerEvent.event_id}` : "Event Not Found"}
+        title={drawerEvent ? `Event: ${drawerEvent.event_id}` : `Event Not Found: ${drawerMissingId}`}
         subtitle={
           drawerEvent
-            ? `${drawerEvent.event_type} by role "${drawerEvent.agent_role || getAgentRole(drawerEvent.agent_id, agents, normalizedEvents)}"`
-            : drawerMissingId
+            ? `${drawerEvent.agent_id} (${drawerEvent.agent_role || getAgentRole(drawerEvent.agent_id, agents, normalizedEvents)}) &middot; ${drawerEvent.action} &middot; ${drawerEvent.timestamp ? time(drawerEvent.timestamp) : ""}`
+            : "Event dropped in transit or withheld by provider."
         }
       >
         {drawerEvent ? (
-          <div className="space-y-4">
-            {/* Timestamp Reference Note (Item 4) */}
-            <div className="rounded-lg card-subtle p-3.5 text-[14px] leading-relaxed text-[var(--text-2)] border border-[var(--hairline-subtle)]">
-              <span className="font-semibold text-[var(--text)]">Timestamp reference:</span> Event <code className="font-mono text-[12px] text-[var(--accent)] font-semibold">timestamp</code> reflects simulator execution time; <code className="font-mono text-[12px] text-[var(--accent)] font-semibold">normalized_at</code> reflects collector ingestion wall-clock time. Raw telemetry data is unaltered.
-            </div>
-
-            {/* Agent Full ID Card with Copy button */}
-            <div className="rounded-lg card p-3 flex items-center justify-between text-[14px]">
-              <div>
-                <span className="text-[var(--text-3)] block text-[11px] uppercase tracking-wider font-semibold">Full Agent ID</span>
-                <span className="font-mono text-[13px] text-[var(--text)] select-all">{drawerEvent.agent_id}</span>
-              </div>
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <span className="text-[14px] font-medium text-[var(--text)]">Raw Event Payload</span>
               <button
                 type="button"
-                onClick={() => copyDrawerAgentId(drawerEvent.agent_id)}
-                className="inline-flex items-center gap-1 rounded-md card-subtle px-2.5 py-1 text-[12px] font-medium text-[var(--text-2)] hover:text-[var(--text)]"
-              >
-                {copiedAgentId ? <Check size={12} className="text-[var(--ok)]" /> : <Copy size={12} />}
-                <span>{copiedAgentId ? "Copied" : "Copy ID"}</span>
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-[12px] font-semibold text-[var(--text-3)] uppercase tracking-wider">
-                Raw Event Payload
-              </span>
-              <button
                 onClick={copyEventJson}
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-md card px-2.5 py-1 text-[14px] font-medium text-[var(--text-2)] hover:text-[var(--text)]"
+                className="inline-flex items-center gap-1.5 rounded-md card px-3 py-1 text-[13px] font-medium text-[var(--text)] transition-colors hover:border-[var(--accent)]"
               >
-                {copied ? <Check size={13} className="text-[var(--ok)]" /> : <Copy size={13} />}
+                {copied ? <Check size={14} className="text-[#1F7A45]" /> : <Copy size={14} />}
                 <span>{copied ? "Copied" : "Copy JSON"}</span>
               </button>
             </div>
 
-            <pre className="overflow-auto rounded-xl card-subtle p-4 font-mono text-[13px] leading-relaxed text-[var(--text)] max-h-[calc(100vh-320px)]">
-              {JSON.stringify(drawerEvent, null, 2)}
-            </pre>
+            <div className="rounded-xl card-subtle p-4 font-mono text-[12px] leading-relaxed text-[var(--text)] overflow-x-auto max-h-[60vh] no-scrollbar">
+              <pre>{JSON.stringify(drawerEvent, null, 2)}</pre>
+            </div>
+
+            <div className="space-y-3 border-t border-[var(--hairline-subtle)] pt-4 text-[14px]">
+              <div className="flex justify-between">
+                <span className="text-[var(--text-3)]">Source Agent ID:</span>
+                <span className="font-mono text-[var(--text)] flex items-center gap-1.5">
+                  {drawerEvent.agent_id}
+                  <button
+                    type="button"
+                    onClick={() => copyDrawerAgentId(drawerEvent.agent_id)}
+                    className="cursor-pointer text-[var(--text-3)] hover:text-[var(--accent)]"
+                  >
+                    {copiedAgentId ? <Check size={12} className="text-[#1F7A45]" /> : <Copy size={12} />}
+                  </button>
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--text-3)]">Event Type:</span>
+                <span className="font-mono text-[var(--text)]">{drawerEvent.event_type}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--text-3)]">Status:</span>
+                <span className="font-mono text-[var(--text)]">{drawerEvent.status}</span>
+              </div>
+              {drawerEvent.resource && (
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-3)]">Resource:</span>
+                  <span className="font-mono text-[var(--text)]">{drawerEvent.resource}</span>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
-          <div className="rounded-xl bg-[var(--high-bg)] p-4 text-[14px] text-[var(--high)]">
-            Event ID <code className="font-mono">{drawerMissingId}</code> was not found in the normalized event repository.
+          <div className="space-y-4 text-[14px] text-[var(--text-2)]">
+            <p>
+              This event (<code className="font-mono text-[var(--text)]">{drawerMissingId}</code>) was correlated through indirect handoffs or broker telemetry, but its full record was not found in the primary log.
+            </p>
           </div>
         )}
       </Drawer>
-        </>
-      )}
 
-      <Footnotes symbols={["†", "‡"]} />
+      <Footnotes
+        symbols={["†", "‡"]}
+      />
     </div>
   );
 }

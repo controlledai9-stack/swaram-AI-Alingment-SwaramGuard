@@ -186,7 +186,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text)]">
               {ev?.containment_rate != null ? pct(ev.containment_rate) : "100%"}
             </div>
-            <div className="mt-1 text-[14px] text-[var(--text-3)]">Block / pause policy recommendations</div>
+            <div className="mt-1 text-[14px] text-[var(--text-3)]">Policy recommendations to stop or pause</div>
           </div>
 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">

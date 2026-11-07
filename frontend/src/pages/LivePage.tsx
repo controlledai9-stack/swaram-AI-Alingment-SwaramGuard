@@ -3,161 +3,220 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { GeminiQuota } from "../components/GeminiQuota";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, Button, Card, CustomSelect, Empty, Field, Segmented, StatusBanner, type Status } from "../components/ui";
+import { Card, CustomSelect, Empty, Segmented, StatusBanner, type Status } from "../components/ui";
 import { shortId } from "../lib/format";
 import { type LiveMessage, useLiveStream } from "../lib/live";
 import { useAppState } from "../state";
 import type { AgentCount } from "../types";
-import { Zap, ShieldAlert, Lock, AlertTriangle, Play, Radio, RotateCcw } from "lucide-react";
+import { Zap, ShieldAlert, Lock, Play, Square, Filter } from "lucide-react";
 
 type AnyData = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const TONE: Record<string, string> = {
-  detection: "bg-[var(--med-bg)] text-[var(--med)]",
-  containment: "bg-[var(--crit-bg)] text-[var(--crit)]",
-  quarantine: "bg-[var(--high-bg)] text-[var(--high)]",
+  detection: "bg-amber-500/10 text-amber-700 border-amber-300",
+  containment: "bg-rose-500/10 text-rose-700 border-rose-300",
+  quarantine: "bg-rose-500/10 text-rose-700 border-rose-300",
   run_started: "bg-[var(--accent)]/10 text-[var(--accent)]",
-  run_finished: "bg-[var(--ok-bg)] text-[var(--ok)]",
-  run_failed: "bg-[var(--crit-bg)] text-[var(--crit)]",
+  run_finished: "bg-emerald-500/10 text-[#1F7A45]",
+  run_failed: "bg-rose-500/10 text-rose-700",
   response: "bg-[var(--accent)]/10 text-[var(--accent)]",
-  operator: "bg-[var(--crit-bg)] text-[var(--crit)]",
-  reset: "bg-[var(--ok-bg)] text-[var(--ok)]",
+  operator: "bg-rose-500/10 text-rose-700",
+  reset: "bg-emerald-500/10 text-[#1F7A45]",
 };
 
-function describe(m: LiveMessage<AnyData>): { title: string; subtitle?: string; isPreBlock?: boolean; isCircuitBreaker?: boolean; isCovert?: boolean } {
+/**
+ * Plain-English event describer for Live Feed
+ * Zero technical jargon on primary cards
+ */
+function describe(m: LiveMessage<AnyData>): {
+  title: string;
+  subtitle?: string;
+  isPreBlock?: boolean;
+  isCircuitBreaker?: boolean;
+  isCovert?: boolean;
+} {
   const d = m.data;
   switch (m.type) {
     case "event": {
-      const isPreBlock = d.status === "denied" || (d.payload?.gateway_reason && String(d.payload.gateway_reason).includes("before execution"));
+      const isPreBlock =
+        d.status === "denied" ||
+        (d.payload?.gateway_reason && String(d.payload.gateway_reason).includes("before execution"));
       const isCovertAction = d.event_type === "data_transfer" && (d.target || "").includes("paste-site");
       return {
-        title: `${shortId(d.agent_id)} ${d.event_type}:${d.action} ${d.resource ?? d.target ?? ""}`,
-        subtitle: isPreBlock ? (d.payload?.gateway_reason || "Refused by pre-execution policy check before tool execution") : undefined,
+        title: isPreBlock
+          ? `Stopped before it ran: ${shortId(d.agent_id)} (${d.action || d.event_type})`
+          : `${shortId(d.agent_id)} ${d.event_type}:${d.action} ${d.resource ?? d.target ?? ""}`,
+        subtitle: isPreBlock
+          ? (d.payload?.gateway_reason || "Refused by safety gateway before action could execute")
+          : undefined,
         isPreBlock,
         isCovert: isCovertAction,
       };
     }
     case "detection": {
-      const isCovert = d.rule_id === "SG-029" || d.rule_id === "SG-003";
+      const isCovert = d.rule_id === "SG-029";
       return {
-        title: `${d.rule_id} ${d.rule_name} · ${(d.agent_ids ?? []).map(shortId).join(", ") || "run-level"}`,
+        title: isCovert
+          ? `Secret data send flagged · ${shortId((d.agent_ids ?? [])[0])}`
+          : `Alert: ${d.rule_name || d.rule_id} · ${(d.agent_ids ?? []).map(shortId).join(", ") || "swarm"}`,
         subtitle: d.reason,
         isCovert,
       };
     }
     case "containment": {
-      const isCircuitBreaker = d.trigger === "circuit_breaker" || (d.explanation && String(d.explanation).includes("circuit breaker"));
+      const isCircuitBreaker =
+        d.trigger === "circuit_breaker" ||
+        (d.explanation && String(d.explanation).includes("circuit breaker"));
       return {
-        title: `${d.scope === "egress" ? "Egress held" : "Agent paused"}: ${shortId(d.agent_id)} (${d.role})`,
-        subtitle: d.explanation ?? "",
+        title: isCircuitBreaker
+          ? `Safety trigger: Swarm halted to prevent spread`
+          : `Agent stopped: ${shortId(d.agent_id)} (${d.role || "Agent"})`,
+        subtitle: d.explanation ?? "Stopped by safety trigger to protect swarm",
         isCircuitBreaker,
       };
     }
     case "quarantine":
       return {
-        title: `Quarantined input for ${shortId(d.agent_id)}: ${d.resource}`,
-        subtitle: d.reason === "classifier" ? `Prompt injection score: ${d.score} (SG-028)` : `Claims to be from ${d.claimed_sender} (SG-026)`,
+        title: `Suspicious message held for ${shortId(d.agent_id)}`,
+        subtitle:
+          d.reason === "classifier"
+            ? `Safety trigger detected unsafe prompt content`
+            : `Message claimed to be from ${d.claimed_sender || "unverified sender"}`,
       };
     case "run_started":
-      return { title: `Run started: ${d.config?.scenario_id ?? ""}` };
+      return { title: `Run started: ${(d.config?.scenario_id ?? "").replace(/_/g, " ")}` };
     case "run_finished":
       return {
-        title: `Run finished · Data left system: ${d.live_metrics?.data_left_the_system ? "YES (LEAK)" : "NO (CONTAINED)"}`,
-        subtitle: d.live_metrics ? `Blocked: ${d.live_metrics.blocked_actions_total ?? 0} · Pre-execution checks: ${d.live_metrics.blocked_by_policy_check ?? 0}` : undefined,
+        title: `Run completed · Data sent outside: ${
+          d.live_metrics?.data_left_the_system ? "YES (LEAK DETECTED)" : "NO (SAFELY STOPPED)"
+        }`,
+        subtitle: d.live_metrics
+          ? `Actions stopped before running: ${d.live_metrics.blocked_by_policy_check ?? 0}`
+          : undefined,
       };
     case "run_failed":
       return { title: `Run failed: ${d.error}` };
     case "response":
       return {
-        title: `Policy: ${d.rule_id} → ${d.decision} · ${(d.agent_ids ?? []).map(shortId).join(", ") || "run-level"}`,
+        title: `Safety policy applied to ${(d.agent_ids ?? []).map(shortId).join(", ") || "swarm"}`,
         subtitle: (d.applied ?? []).join(", "),
       };
     case "operator":
-      return { title: `Operator ${d.action} ${shortId(d.agent_id)}: ${d.result}` };
+      return { title: `Operator action on ${shortId(d.agent_id)}: ${d.result}` };
     case "review":
-      return { title: `Review ${d.action}: ${shortId(d.item?.agent_id)} (${d.item?.kind})${d.item?.status !== "pending" ? ` → ${d.item?.status}` : ""}` };
+      return {
+        title: `Decision recorded for ${shortId(d.item?.agent_id)}: ${d.item?.status}`,
+      };
     case "reset":
-      return { title: "Live hub & containment reset by operator", subtitle: d.message };
+      return { title: "Swarm reset by operator", subtitle: d.message };
     default:
       return { title: m.type };
   }
 }
 
-/** Live monitor: real-time streaming telemetry, pre-execution gates, and circuit breaker status */
 export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "topology" } = {}) {
   const [activeView, setActiveView] = useState<"feed" | "topology">(initialView);
 
   useEffect(() => {
     setActiveView(initialView);
   }, [initialView]);
+
   const { meta, selectRun, refreshRuns } = useAppState();
   const { messages, connected, totalReceived, clear, reset } = useLiveStream(undefined, 5000);
   const [startedRun, setStartedRun] = useState<string | null>(null);
 
-  // Once the run started here finishes (and is saved), make it the app's selected run, so Dashboard, Incidents and
-  // Pipeline show it instead of whatever run was selected before.
+  // Once started run completes, auto-select it across Dashboard, Incidents, Pipeline
   useEffect(() => {
     if (!startedRun) return;
-    const done = messages.some((m) => m.run_id === startedRun && (m.type === "run_finished" || m.type === "run_failed"));
+    const done = messages.some(
+      (m) => m.run_id === startedRun && (m.type === "run_finished" || m.type === "run_failed")
+    );
     if (!done) return;
     setStartedRun(null);
     refreshRuns().then(() => selectRun(startedRun));
   }, [messages, startedRun, refreshRuns, selectRun]);
+
   const [scenario, setScenario] = useState("coordinated_leakage");
   const [count, setCount] = useState<AgentCount>(5);
   const [ai, setAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [status, setStatus] = useState<Status>(null);
-  const [feedFilter, setFeedFilter] = useState<"all" | "security" | "blocks" | "containment">("all");
+
+  // Feed filter: actions (default), alerts, everything
+  const [feedFilter, setFeedFilter] = useState<"actions" | "alerts" | "everything">("actions");
+  const [selectedAgentFilter, setSelectedAgentFilter] = useState<string | null>(null);
 
   // Derive live KPIs
-  const { liveRun, running, agents, circuitBreakerTripped, preExecutionBlocks, covertAlerts, quarantinedCount } = useMemo(() => {
-    let run: string | null = null;
-    let open = false;
-    let out = new Map<string, { role: string; state: string; trigger?: string }>();
-    let cbTripped = false;
-    let preBlocks = 0;
-    let covertCount = 0;
-    let qCount = 0;
+  const { liveRun, running, agents, circuitBreakerTripped, preExecutionBlocks, covertAlerts, containedAgentsList } =
+    useMemo(() => {
+      let run: string | null = null;
+      let open = false;
+      let out = new Map<string, { role: string; state: string; trigger?: string; explanation?: string }>();
+      let cbTripped = false;
+      let preBlocks = 0;
+      let covertCount = 0;
 
-    for (const m of messages as LiveMessage<AnyData>[]) {
-      if (m.type === "run_agents") {
-        run = m.run_id;
-        open = true;
-        out = new Map(m.data.agents.map((a: AnyData) => [a.agent_id, { role: a.role, state: "active" }]));
-      } else if (m.run_id === run && (m.type === "run_finished" || m.type === "run_failed")) {
-        open = false;
-      } else if (m.run_id === run && m.type === "containment" && out.has(m.data.agent_id)) {
-        const cur = out.get(m.data.agent_id)!;
-        cur.state = m.data.scope === "egress" && cur.state !== "paused" ? "egress held" : "paused";
-        cur.trigger = m.data.trigger;
-        if (m.data.trigger === "circuit_breaker" || (m.data.explanation && String(m.data.explanation).includes("circuit breaker"))) {
-          cbTripped = true;
+      for (const m of messages as LiveMessage<AnyData>[]) {
+        if (m.type === "run_agents") {
+          run = m.run_id;
+          open = true;
+          out = new Map(m.data.agents.map((a: AnyData) => [a.agent_id, { role: a.role, state: "active" }]));
+        } else if (m.run_id === run && (m.type === "run_finished" || m.type === "run_failed")) {
+          open = false;
+        } else if (m.run_id === run && m.type === "containment" && out.has(m.data.agent_id)) {
+          const cur = out.get(m.data.agent_id)!;
+          cur.state = "paused";
+          cur.trigger = m.data.trigger;
+          cur.explanation = m.data.explanation;
+          if (
+            m.data.trigger === "circuit_breaker" ||
+            (m.data.explanation && String(m.data.explanation).includes("circuit breaker"))
+          ) {
+            cbTripped = true;
+          }
+        } else if (
+          m.run_id === run &&
+          m.type === "review" &&
+          m.data.item?.status === "released" &&
+          out.has(m.data.item.agent_id)
+        ) {
+          out.get(m.data.item.agent_id)!.state = "active";
+        } else if (
+          m.type === "event" &&
+          (m.data.status === "denied" ||
+            (m.data.payload?.gateway_reason &&
+              String(m.data.payload.gateway_reason).includes("before execution")))
+        ) {
+          preBlocks++;
+        } else if (m.type === "detection" && m.data.rule_id === "SG-029") {
+          covertCount++;
         }
-      } else if (m.run_id === run && m.type === "review" && m.data.item?.status === "released" && out.has(m.data.item.agent_id)) {
-        out.get(m.data.item.agent_id)!.state = "active";
-      } else if (m.type === "event" && (m.data.status === "denied" || (m.data.payload?.gateway_reason && String(m.data.payload.gateway_reason).includes("before execution")))) {
-        preBlocks++;
-      } else if (m.type === "detection" && (m.data.rule_id === "SG-029" || m.data.rule_id === "SG-003")) {
-        covertCount++;
-      } else if (m.type === "quarantine") {
-        qCount++;
       }
-    }
-    return {
-      liveRun: run,
-      running: open,
-      agents: [...out.entries()],
-      circuitBreakerTripped: cbTripped,
-      preExecutionBlocks: preBlocks,
-      covertAlerts: covertCount,
-      quarantinedCount: qCount,
-    };
-  }, [messages]);
+
+      // Collect stopped agents needing decision
+      const contained = [...out.entries()]
+        .filter(([, a]) => a.state === "paused")
+        .map(([id, a]) => ({
+          agent_id: id,
+          role: a.role,
+          reason: a.trigger === "circuit_breaker" ? "Safety trigger" : a.explanation || "Safety policy",
+        }));
+
+      return {
+        liveRun: run,
+        running: open,
+        agents: [...out.entries()],
+        circuitBreakerTripped: cbTripped,
+        preExecutionBlocks: preBlocks,
+        covertAlerts: covertCount,
+        containedAgentsList: contained,
+      };
+    }, [messages]);
 
   const [acting, setActing] = useState<string | null>(null);
 
+  // Emergency brake only: Pause agent or Stop run
   async function operate(agentId: string | null) {
     if (!liveRun) return;
     setActing(agentId ?? "stop");
@@ -171,6 +230,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     }
   }
 
+  // Admin-only Reset
   async function handleResetAll() {
     setResetting(true);
     setStatus(null);
@@ -179,17 +239,13 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
       reset();
       setStatus({
         kind: "success",
-        message: (
-          <>
-            All live telemetry, event queues, circuit breaker states, and {res.released_containments || "any"} contained agent states have been reset.
-          </>
-        ),
+        message: <>All live telemetry and {res.released_containments || "any"} stopped agent states have been reset.</>,
       });
     } catch (e) {
       reset();
       setStatus({
         kind: "info",
-        message: "Local live stream, feed buffer, and counters reset.",
+        message: "Live telemetry feed and counters reset.",
       });
     } finally {
       setResetting(false);
@@ -200,20 +256,30 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
   const feed = useMemo(() => {
     return (messages as LiveMessage<AnyData>[])
       .filter((m) => {
-        if (feedFilter === "security") {
-          return m.type === "detection" || m.type === "containment" || m.type === "quarantine" || (m.type === "event" && m.data.status === "denied");
+        // Agent filter
+        if (selectedAgentFilter) {
+          const agentId = m.data.agent_id || (m.data.agent_ids && m.data.agent_ids[0]);
+          if (agentId !== selectedAgentFilter) return false;
         }
-        if (feedFilter === "blocks") {
-          return m.type === "event" && (m.data.status === "denied" || (m.data.payload?.gateway_reason && String(m.data.payload.gateway_reason).includes("before execution")));
+
+        // Category filter
+        if (feedFilter === "actions") {
+          // Stopped actions and alerts
+          return (
+            m.type === "containment" ||
+            m.type === "detection" ||
+            m.type === "quarantine" ||
+            (m.type === "event" && m.data.status === "denied")
+          );
         }
-        if (feedFilter === "containment") {
-          return m.type === "containment" || m.type === "operator" || m.type === "quarantine";
+        if (feedFilter === "alerts") {
+          return m.type === "detection" || m.type === "quarantine";
         }
-        return true;
+        return true; // everything
       })
       .slice(-1000)
       .reverse();
-  }, [messages, feedFilter]);
+  }, [messages, feedFilter, selectedAgentFilter]);
 
   async function start(chosenScenario?: string) {
     setBusy(true);
@@ -235,7 +301,11 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
       setStartedRun(r.run_id);
       setStatus({
         kind: "success",
-        message: <>Live streaming run <code className="font-mono">{r.run_id}</code> ({targetScenario}). Interception gates active.</>,
+        message: (
+          <>
+            Streaming run <code className="font-mono">{r.run_id}</code>. Safety triggers active.
+          </>
+        ),
       });
     } catch (e) {
       setStatus({ kind: "error", message: (e as Error).message });
@@ -250,7 +320,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     <div className="min-w-0 space-y-6">
       <PageHeader
         title="Live Guard."
-        subtitle="Real-time multi-agent telemetry stream, policy gating, covert transfer detection, and swarm communication topology."
+        subtitle="Watch autonomous agents collaborate in real time. Emergency pause and stop controls."
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <Segmented
@@ -261,21 +331,10 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 else window.location.hash = "#/live";
               }}
               options={[
-                { value: "feed", label: "Live Telemetry Feed" },
-                { value: "topology", label: "Swarm Topology Graph" },
+                { value: "feed", label: "Live Feed" },
+                { value: "topology", label: "Swarm Graph" },
               ]}
             />
-            {activeView === "feed" && (
-              <Button
-                variant="secondary"
-                onClick={handleResetAll}
-                busy={resetting}
-                className="text-[13px] border-[var(--hairline)]"
-              >
-                <RotateCcw size={14} className="mr-1.5" />
-                <span>Reset All</span>
-              </Button>
-            )}
           </div>
         }
       />
@@ -288,345 +347,394 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
         </div>
       ) : (
         <>
+          {/* Top Control Bar: Start Run and Emergency Stop */}
+          <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="w-[180px] sm:w-[220px]">
+                  <CustomSelect
+                    value={scenario}
+                    onChange={(val) => setScenario(val)}
+                    options={
+                      meta?.scenarios
+                        .filter((s) => s.scenario_id !== "user_directed")
+                        .map((s) => ({
+                          value: s.scenario_id,
+                          label: s.name,
+                          description: s.description,
+                        })) ?? []
+                    }
+                    size="sm"
+                    ariaLabel="Select scenario for live run"
+                  />
+                </div>
 
+                <div className="flex items-center gap-1.5 text-[13px]">
+                  <span className="text-[var(--text-3)] font-medium">Agents:</span>
+                  <Segmented
+                    size="sm"
+                    value={count}
+                    onChange={setCount}
+                    options={[5, 10, 20].map((n) => ({ value: n as AgentCount, label: n }))}
+                  />
+                </div>
 
-      {/* Prominent Circuit Breaker Alert Banner */}
-      {circuitBreakerTripped && (
-        <div className="rounded-[var(--r-card)] border-2 border-[var(--crit)] bg-[var(--crit-bg)] p-5 shadow-lg">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--crit)] text-white">
-                <ShieldAlert size={22} />
-              </span>
-              <div>
-                <h3 className="text-[17px] font-bold text-[var(--crit)] uppercase tracking-wide">
-                  Swarm Circuit Breaker Tripped (OWASP ASI08)
-                </h3>
-                <p className="mt-0.5 text-[14px] text-[var(--text)]">
-                  Multiple agents compromised in coordinated activity. Swarm execution automatically paused to prevent cascading pipeline failure.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleResetAll}
-                disabled={resetting}
-                className="inline-flex items-center gap-1.5 rounded-full bg-white border border-[var(--crit)]/30 px-3.5 py-2 text-[13px] font-semibold text-[var(--crit)] shadow-xs hover:bg-neutral-50 transition-all"
-              >
-                <RotateCcw size={13} className={resetting ? "animate-spin" : ""} />
-                <span>Reset Circuit Breaker &amp; Resume</span>
-              </button>
-              <a
-                href="#/responses"
-                className="inline-flex items-center gap-1.5 rounded-full bg-[var(--crit)] px-4 py-2 text-[13px] font-semibold text-white shadow-xs hover:opacity-90"
-              >
-                <span>Inspect in Review Queue</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+                <div className="flex items-center gap-1.5 text-[13px]">
+                  <span className="text-[var(--text-3)] font-medium">Mode:</span>
+                  <Segmented
+                    size="sm"
+                    value={ai ? "ai" : "scripted"}
+                    onChange={(v) => setAi(v === "ai")}
+                    options={[
+                      { value: "scripted", label: "Scripted" },
+                      { value: "ai", label: "AI" },
+                    ]}
+                  />
+                </div>
 
-      {/* Real-Time Live HUD Stats Grid */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline-subtle)]">
-          <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--text-3)]">
-            <span>Live Stream</span>
-            <span className={`h-2 w-2 rounded-full ${connected ? "bg-[var(--ok)] animate-pulse" : "bg-[var(--crit)]"}`} />
-          </div>
-          <div className="mt-2 text-[26px] font-bold tabular-nums text-[var(--text)]">
-            {displayCount.toLocaleString()}
-          </div>
-          <span className="text-[12px] text-[var(--text-2)]">
-            {totalReceived > messages.length ? `Showing latest ${messages.length.toLocaleString()} in feed` : "Events Received"}
-          </span>
-        </div>
-
-        <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline-subtle)]">
-          <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--accent)]">
-            <span>Pre-Execution Blocks</span>
-            <Lock size={14} />
-          </div>
-          <div className="mt-2 text-[26px] font-bold tabular-nums text-[var(--accent)]">
-            {preExecutionBlocks}
-          </div>
-          <span className="text-[12px] text-[var(--text-2)]">Harm Prevented Before Run</span>
-        </div>
-
-        <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline-subtle)]">
-          <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--crit)]">
-            <span>Covert Transfers</span>
-            <AlertTriangle size={14} />
-          </div>
-          <div className="mt-2 text-[26px] font-bold tabular-nums text-[var(--crit)]">
-            {covertAlerts}
-          </div>
-          <span className="text-[12px] text-[var(--text-2)]">
-            SG-029 Caught {quarantinedCount > 0 ? `· ${quarantinedCount} Quarantined` : ""}
-          </span>
-        </div>
-
-        <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline-subtle)]">
-          <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--text-3)]">
-            <span>Circuit Breaker</span>
-            <Zap size={14} className={circuitBreakerTripped ? "text-[var(--crit)]" : "text-[var(--ok)]"} />
-          </div>
-          <div className="mt-2 text-[18px] font-bold tracking-tight">
-            {circuitBreakerTripped ? (
-              <span className="text-[var(--crit)]">TRIPPED</span>
-            ) : (
-              <span className="text-[var(--ok)]">ARMED (Max 3)</span>
-            )}
-          </div>
-          <span className="text-[12px] text-[var(--text-2)]">{agents.filter(([, a]) => a.state === "paused").length} Paused Agents</span>
-        </div>
-      </div>
-
-      {/* Control Console Card */}
-      <Card
-        title="Start Live Multi-Agent Run"
-        actions={
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-[13px] text-[var(--text-2)]">
-              <Radio size={14} className={connected ? "text-[var(--ok)]" : "text-[var(--crit)]"} />
-              {connected ? "WebSocket Connected" : "Connecting…"}
-            </span>
-            <button
-              onClick={handleResetAll}
-              disabled={resetting}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--hairline)] bg-[var(--card)] px-3 py-1 text-[12px] font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)] transition-all"
-            >
-              <RotateCcw size={12} className={resetting ? "animate-spin" : ""} />
-              <span>{resetting ? "Resetting…" : "Reset All"}</span>
-            </button>
-          </div>
-        }
-      >
-        <div className="grid gap-4 sm:grid-cols-3 [&>*]:min-w-0">
-          <Field label="Scenario" asDiv>
-            <CustomSelect
-              value={scenario}
-              onChange={(val) => setScenario(val)}
-              options={
-                meta?.scenarios
-                  .filter((s) => s.scenario_id !== "user_directed")
-                  .map((s) => ({
-                    value: s.scenario_id,
-                    label: s.name,
-                    description: s.description,
-                  })) ?? []
-              }
-              ariaLabel="Select scenario for live run"
-            />
-          </Field>
-          <Field label="Agents in Swarm" asDiv>
-            <Segmented full value={count} onChange={setCount} options={[5, 10, 20].map((n) => ({ value: n as AgentCount, label: n }))} />
-          </Field>
-          <Field label="Driven by" asDiv>
-            <Segmented full value={ai ? "ai" : "scripted"} onChange={(v) => setAi(v === "ai")}
-              options={[{ value: "scripted", label: "Scripted" }, { value: "ai", label: "AI decides" }]} />
-          </Field>
-        </div>
-
-        {ai && <div className="mt-4 max-w-md"><GeminiQuota agentCount={count} agentMode="autonomous" /></div>}
-
-        {/* Quick Launch Buttons for Hackathon Demo */}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--hairline-subtle)] pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-semibold text-[var(--text-2)]">Demo Attacks:</span>
-            <button
-              onClick={() => start("coordinated_leakage")}
-              disabled={busy}
-              className="rounded-full bg-[var(--card-alt)] border border-[var(--hairline-subtle)] px-3 py-1 text-[12px] font-medium text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-            >
-              SG-029 Covert Staged Transfer
-            </button>
-            <button
-              onClick={() => start("unauthorized_access")}
-              disabled={busy}
-              className="rounded-full bg-[var(--card-alt)] border border-[var(--hairline-subtle)] px-3 py-1 text-[12px] font-medium text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-            >
-              Pre-Execution Policy Refusal
-            </button>
-          </div>
-
-          <Button onClick={() => start()} busy={busy} variant="primary">
-            <Play size={14} className="mr-1 fill-current" />
-            <span>Start Live Run</span>
-          </Button>
-        </div>
-      </Card>
-
-      {/* Main Split: Agents Status + Live Telemetry Stream */}
-      <div className="grid gap-6 lg:grid-cols-[300px_1fr] [&>*]:min-w-0">
-        {/* Left Column: Live Agent Roster */}
-        <Card title={running ? "Agents (live)" : "Swarm Agents"}>
-          {agents.length ? (
-            <>
-              <ul className="space-y-2.5 text-[14px]">
-                {agents.map(([id, a]) => (
-                  <li key={id} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--card-alt)] p-2.5 border border-[var(--hairline-subtle)]/40">
-                    <div className="min-w-0">
-                      <div className="font-mono text-[13px] font-semibold text-[var(--text)] truncate">{shortId(id)}</div>
-                      <div className="text-[12px] text-[var(--text-2)] capitalize">{a.role}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge value={a.state === "active" ? "allowed" : a.state === "paused" ? "blocked" : "would_block"} />
-                      {running && a.state !== "paused" && (
-                        <button
-                          className="rounded-md border border-[var(--crit)]/30 bg-[var(--crit-bg)] px-2 py-0.5 text-[11px] font-semibold text-[var(--crit)] hover:bg-[var(--crit)] hover:text-white transition-all disabled:opacity-40"
-                          disabled={!!acting}
-                          onClick={() => operate(id)}
-                          aria-label={`Pause ${id}`}
-                        >
-                          {acting === id ? "…" : "Pause"}
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              {running && (
-                <Button variant="secondary" className="mt-4 w-full" busy={acting === "stop"} onClick={() => operate(null)}>
-                  Stop run (contain all)
-                </Button>
-              )}
-              <div className="mt-3 flex items-center justify-between pt-2 border-t border-[var(--hairline-subtle)] text-[12px]">
-                <span className="text-[var(--text-3)]">
-                  {agents.filter(([, a]) => a.state === "paused").length} paused
-                </span>
                 <button
-                  onClick={handleResetAll}
-                  disabled={resetting}
-                  className="font-medium text-[var(--link)] hover:underline"
+                  type="button"
+                  onClick={() => start()}
+                  disabled={busy}
+                  className="h-8 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-opacity flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  Reset &amp; resume all
+                  <Play size={13} className="fill-current" />
+                  <span>Start</span>
                 </button>
               </div>
-            </>
-          ) : (
-            <Empty>Agents appear when a run starts.</Empty>
-          )}
-        </Card>
 
-        {/* Right Column: Live Telemetry Stream */}
-        <Card title={`Live Feed (${displayCount.toLocaleString()})`}>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--hairline-subtle)] pb-3 text-[13px]">
-            {/* Filter buttons */}
-            <div className="inline-flex rounded-full bg-[var(--hairline-subtle)] p-0.5 text-[12px]">
-              <button
-                onClick={() => setFeedFilter("all")}
-                className={`rounded-full px-3 py-1 font-medium transition-all ${
-                  feedFilter === "all" ? "bg-[var(--card)] text-[var(--text)] shadow-xs" : "text-[var(--text-2)]"
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setFeedFilter("security")}
-                className={`rounded-full px-3 py-1 font-medium transition-all ${
-                  feedFilter === "security" ? "bg-[var(--card)] text-[var(--text)] shadow-xs" : "text-[var(--text-2)]"
-                }`}
-              >
-                Detections &amp; Blocks
-              </button>
-              <button
-                onClick={() => setFeedFilter("blocks")}
-                className={`rounded-full px-3 py-1 font-medium transition-all ${
-                  feedFilter === "blocks" ? "bg-[var(--card)] text-[var(--text)] shadow-xs" : "text-[var(--text-2)]"
-                }`}
-              >
-                Pre-Execution Blocks
-              </button>
-              <button
-                onClick={() => setFeedFilter("containment")}
-                className={`rounded-full px-3 py-1 font-medium transition-all ${
-                  feedFilter === "containment" ? "bg-[var(--card)] text-[var(--text)] shadow-xs" : "text-[var(--text-2)]"
-                }`}
-              >
-                Containments
-              </button>
+              {/* Emergency Stop Run Button */}
+              {running && (
+                <button
+                  type="button"
+                  disabled={acting === "stop"}
+                  onClick={() => operate(null)}
+                  className="h-8 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Square size={13} className="fill-current" />
+                  <span>Stop run</span>
+                </button>
+              )}
+            </div>
+            {ai && (
+              <div className="mt-3 max-w-md pt-2 border-t border-[var(--hairline-subtle)]">
+                <GeminiQuota agentCount={count} agentMode="autonomous" />
+              </div>
+            )}
+          </div>
+
+          {/* Pinned "Needs decision" Strip (Strictly links to Incidents; no decision buttons here) */}
+          {containedAgentsList.length > 0 && (
+            <div className="rounded-[var(--r-card)] border border-rose-300 bg-rose-50/80 p-4 shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-white text-[11px] font-bold">
+                    {containedAgentsList.length}
+                  </span>
+                  <span className="font-semibold text-[14px] text-rose-950">
+                    Needs decision ({containedAgentsList.length})
+                  </span>
+                </div>
+                <a
+                  href="#/incidents"
+                  className="text-[13px] font-semibold text-rose-700 hover:text-rose-900 flex items-center gap-1"
+                >
+                  Open Incidents &rarr;
+                </a>
+              </div>
+              <div className="divide-y divide-rose-200/70">
+                {containedAgentsList.map((c) => (
+                  <div key={c.agent_id} className="py-2 flex items-center justify-between text-[13px]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-600">⛔</span>
+                      <span className="font-mono font-semibold text-neutral-900">{shortId(c.agent_id)}</span>
+                      <span className="text-neutral-600">stopped</span>
+                      <span className="text-neutral-400">&middot;</span>
+                      <span className="text-neutral-800 font-medium">{c.reason}</span>
+                    </div>
+                    <a
+                      href="#/incidents"
+                      className="text-[12px] font-semibold text-rose-700 hover:underline px-3 py-1 rounded-full bg-white border border-rose-300 shadow-2xs"
+                    >
+                      Review &rarr;
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* HUD Metric Tiles (Plain English) */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+              <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--text-3)]">
+                <span>Live Stream</span>
+                <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
+              </div>
+              <div className="mt-2 text-[26px] font-bold tabular-nums text-[var(--text)]">
+                {displayCount.toLocaleString()}
+              </div>
+              <span className="text-[12px] text-[var(--text-2)]">Events Received</span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <button className="text-[12px] text-[var(--text-3)] hover:text-[var(--text)] underline" onClick={clear}>
-                Clear feed
-              </button>
-              <span className="text-[var(--hairline)]" aria-hidden>·</span>
-              <button
-                className="text-[12px] font-semibold text-[var(--crit)] hover:underline"
-                onClick={handleResetAll}
-                disabled={resetting}
-              >
-                {resetting ? "Resetting…" : "Reset All"}
-              </button>
+            <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+              <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--accent)]">
+                <span>Stopped before it ran</span>
+                <Lock size={14} />
+              </div>
+              <div className="mt-2 text-[26px] font-bold tabular-nums text-[var(--accent)]">
+                {preExecutionBlocks}
+              </div>
+              <span className="text-[12px] text-[var(--text-2)]">Halted at Gateway</span>
+            </div>
+
+            <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+              <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-rose-600">
+                <span>Secret data sends</span>
+                <ShieldAlert size={14} />
+              </div>
+              <div className="mt-2 text-[26px] font-bold tabular-nums text-rose-600">
+                {covertAlerts}
+              </div>
+              <span className="text-[12px] text-[var(--text-2)]">SG-029 Flagged</span>
+            </div>
+
+            <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+              <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-[var(--text-3)]">
+                <span>Safety trigger</span>
+                <Zap size={14} className={circuitBreakerTripped ? "text-rose-600" : "text-[#1F7A45]"} />
+              </div>
+              <div className="mt-2 text-[18px] font-bold tracking-tight">
+                {circuitBreakerTripped ? (
+                  <span className="text-rose-600">TRIGGERED</span>
+                ) : (
+                  <span className="text-[#1F7A45]">ARMED (Normal)</span>
+                )}
+              </div>
+              <span className="text-[12px] text-[var(--text-2)]">
+                {agents.filter(([, a]) => a.state === "paused").length} agents stopped
+              </span>
             </div>
           </div>
 
-          {feed.length ? (
-            <ol className="max-h-[580px] space-y-2 overflow-y-auto pr-1 text-[14px]" aria-label="Live feed">
-              {feed.map((m) => {
-                const desc = describe(m as LiveMessage<AnyData>);
-                return (
-                  <li
-                    key={m.seq}
-                    className={`rounded-xl p-3 border transition-all ${
-                      desc.isCircuitBreaker
-                        ? "border-[var(--crit)] bg-[var(--crit-bg)] font-semibold"
-                        : desc.isPreBlock
-                        ? "border-[var(--accent)]/40 bg-[var(--accent)]/5"
-                        : desc.isCovert
-                        ? "border-[var(--high)]/40 bg-[var(--high-bg)]"
-                        : "border-[var(--hairline-subtle)] bg-[var(--card)]"
+          {/* Merged Control Room: Agents Roster + Live Feed */}
+          <div className="grid gap-6 lg:grid-cols-[280px_1fr] [&>*]:min-w-0">
+            {/* Left Column: Live Agent Roster (Emergency Brake Pause on hover, click to filter feed) */}
+            <Card
+              title={
+                <div className="flex items-center justify-between">
+                  <span>Agents ({agents.length})</span>
+                  {selectedAgentFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAgentFilter(null)}
+                      className="text-[11px] font-normal text-[var(--accent)] hover:underline flex items-center gap-1"
+                    >
+                      <Filter size={11} /> Clear filter
+                    </button>
+                  )}
+                </div>
+              }
+            >
+              {agents.length ? (
+                <ul className="space-y-2 text-[14px]">
+                  {agents.map(([id, a]) => {
+                    const isSelected = selectedAgentFilter === id;
+                    const isPaused = a.state === "paused";
+                    return (
+                      <li
+                        key={id}
+                        onClick={() => setSelectedAgentFilter(isSelected ? null : id)}
+                        className={`group flex cursor-pointer items-center justify-between gap-2 rounded-xl p-2.5 border transition-all ${
+                          isSelected
+                            ? "border-[var(--accent)] bg-[var(--accent)]/5"
+                            : "border-[var(--hairline-subtle)] bg-[var(--card)] hover:border-[var(--text-3)]"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-mono text-[13px] font-semibold text-[var(--text)] truncate">
+                            {shortId(id)}
+                          </div>
+                          <div className="text-[12px] text-[var(--text-2)] capitalize">{a.role}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              isPaused ? "bg-rose-500/10 text-rose-700 font-semibold" : "bg-emerald-500/10 text-[#1F7A45]"
+                            }`}
+                          >
+                            {isPaused ? "Stopped" : "Active"}
+                          </span>
+
+                          {/* Emergency Pause on hover */}
+                          {running && !isPaused && (
+                            <button
+                              type="button"
+                              className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
+                              disabled={acting === id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                operate(id);
+                              }}
+                              aria-label={`Pause ${id}`}
+                            >
+                              {acting === id ? "…" : "Pause"}
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <Empty>Agents appear when a run starts.</Empty>
+              )}
+            </Card>
+
+            {/* Right Column: Feed with Actions / Alerts / Everything tabs */}
+            <Card
+              title={`Live Telemetry (${displayCount.toLocaleString()})`}
+              actions={
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="text-[12px] text-[var(--text-3)] hover:text-[var(--text)] underline"
+                    onClick={clear}
+                  >
+                    Clear feed
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[12px] font-medium text-rose-600 hover:underline disabled:opacity-40"
+                    onClick={handleResetAll}
+                    disabled={resetting}
+                  >
+                    {resetting ? "Resetting…" : "Reset All"}
+                  </button>
+                </div>
+              }
+            >
+              {/* Filter pills: [Actions] (default: stopped actions and alerts) · [Alerts] · [Everything] */}
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--hairline-subtle)] pb-3 text-[13px]">
+                <div className="inline-flex rounded-full bg-[var(--hairline-subtle)] p-0.5 text-[12px]">
+                  <button
+                    type="button"
+                    onClick={() => setFeedFilter("actions")}
+                    className={`rounded-full px-3.5 py-1 font-medium transition-all ${
+                      feedFilter === "actions"
+                        ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
+                        : "text-[var(--text-2)]"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[11px] text-[var(--text-3)]">#{m.seq}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${TONE[m.type] ?? "bg-[var(--low-bg)] text-[var(--text-2)]"}`}>
-                          {m.type}
-                        </span>
+                    Actions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedFilter("alerts")}
+                    className={`rounded-full px-3.5 py-1 font-medium transition-all ${
+                      feedFilter === "alerts"
+                        ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
+                        : "text-[var(--text-2)]"
+                    }`}
+                  >
+                    Alerts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedFilter("everything")}
+                    className={`rounded-full px-3.5 py-1 font-medium transition-all ${
+                      feedFilter === "everything"
+                        ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
+                        : "text-[var(--text-2)]"
+                    }`}
+                  >
+                    Everything
+                  </button>
+                </div>
 
-                        {desc.isPreBlock && (
-                          <span className="rounded-full bg-[var(--accent)] text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                            Pre-Execution Blocked
-                          </span>
+                <div className="text-[12px] text-[var(--text-3)]">
+                  {feedFilter === "actions"
+                    ? "Showing stopped actions and alerts"
+                    : feedFilter === "alerts"
+                    ? "Showing security alerts"
+                    : "Showing complete event telemetry"}
+                  {selectedAgentFilter ? ` for ${shortId(selectedAgentFilter)}` : ""}
+                </div>
+              </div>
+
+              {feed.length ? (
+                <ol className="max-h-[580px] space-y-2 overflow-y-auto pr-1 text-[14px]" aria-label="Live feed">
+                  {feed.map((m) => {
+                    const desc = describe(m as LiveMessage<AnyData>);
+                    return (
+                      <li
+                        key={m.seq}
+                        className={`rounded-xl p-3 border transition-all ${
+                          desc.isCircuitBreaker
+                            ? "border-rose-400 bg-rose-50/70 font-semibold"
+                            : desc.isPreBlock
+                            ? "border-[var(--accent)]/40 bg-[var(--accent)]/5"
+                            : desc.isCovert
+                            ? "border-amber-400 bg-amber-50/60"
+                            : "border-[var(--hairline-subtle)] bg-[var(--card)]"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] text-[var(--text-3)]">#{m.seq}</span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
+                                TONE[m.type] ?? "bg-[var(--low-bg)] text-[var(--text-2)]"
+                              }`}
+                            >
+                              {m.type === "event" ? "Event" : m.type}
+                            </span>
+
+                            {desc.isPreBlock && (
+                              <span className="rounded-full bg-[var(--accent)] text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                                Stopped before it ran
+                              </span>
+                            )}
+
+                            {desc.isCircuitBreaker && (
+                              <span className="rounded-full bg-rose-600 text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                                Safety trigger
+                              </span>
+                            )}
+
+                            {desc.isCovert && (
+                              <span className="rounded-full bg-amber-500/10 text-amber-800 border border-amber-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                                Secret data send
+                              </span>
+                            )}
+                          </div>
+
+                          {m.ts && (
+                            <span className="font-mono text-[11px] text-[var(--text-3)]">
+                              {new Date(m.ts).toLocaleTimeString()}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-1.5 font-medium text-[var(--text)] [overflow-wrap:anywhere]">
+                          {desc.title}
+                        </div>
+
+                        {desc.subtitle && (
+                          <div className="mt-1 text-[13px] text-[var(--text-2)] [overflow-wrap:anywhere]">
+                            {desc.subtitle}
+                          </div>
                         )}
-
-                        {desc.isCircuitBreaker && (
-                          <span className="rounded-full bg-[var(--crit)] text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                            Circuit Breaker Tripped
-                          </span>
-                        )}
-
-                        {desc.isCovert && (
-                          <span className="rounded-full bg-[var(--crit-bg)] text-[var(--crit)] border border-[var(--crit)]/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                            SG-029 Covert Transfer
-                          </span>
-                        )}
-                      </div>
-
-                      {m.ts && <span className="font-mono text-[11px] text-[var(--text-3)]">{new Date(m.ts).toLocaleTimeString()}</span>}
-                    </div>
-
-                    <div className="mt-1.5 font-medium text-[var(--text)] [overflow-wrap:anywhere]">
-                      {desc.title}
-                    </div>
-
-                    {desc.subtitle && (
-                      <div className="mt-1 text-[13px] text-[var(--text-2)] [overflow-wrap:anywhere]">
-                        {desc.subtitle}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          ) : (
-            <Empty>Waiting for live telemetry. Click a demo attack above or send events via ingest API.</Empty>
-          )}
-        </Card>
-      </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <Empty>No events in feed. Start a scenario run above to observe live telemetry.</Empty>
+              )}
+            </Card>
+          </div>
         </>
       )}
     </div>
