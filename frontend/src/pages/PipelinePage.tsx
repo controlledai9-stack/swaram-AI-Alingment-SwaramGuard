@@ -10,7 +10,7 @@ interface PipelinePageProps {
 
 const TABS = [
   { id: "simulator", label: "Agent simulator", Component: SimulatorPage },
-  { id: "collector", label: "Event collector", Component: CollectorPage },
+  { id: "collector", label: "Event Data", Component: CollectorPage },
   { id: "detection", label: "Threat detection", Component: DetectionPage },
   { id: "response", label: "Security response", Component: ResponsePage },
 ] as const;
@@ -34,8 +34,12 @@ export function PipelinePage({ subpage = "simulator" }: PipelinePageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Sub-tab switcher */}
-      <div className="flex border-b border-[var(--hairline)]/60 pb-3">
+      {/* Data Pipeline Header & Sub-tab switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--hairline)]/60 pb-3">
+        <div>
+          <h2 className="text-[20px] font-bold text-[var(--text)] tracking-tight">Data Pipeline</h2>
+          <p className="text-[13px] text-[var(--text-2)]">Multi-stage pipeline: simulation, event data ingestion, threat detection, and automated policy response.</p>
+        </div>
         <div className="inline-flex rounded-full bg-[var(--hairline-subtle)] p-1">
           {TABS.map((tab) => {
             const on = tab.id === activeTab;

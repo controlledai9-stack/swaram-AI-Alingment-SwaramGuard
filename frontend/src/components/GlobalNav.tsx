@@ -9,9 +9,9 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", path: "#/", label: "Dashboard" },
-  { id: "live", path: "#/live", label: "Live Guard" },
+  { id: "live", path: "#/live", label: "Agent Runtime" },
   { id: "incidents", path: "#/incidents", label: "Incidents" },
-  { id: "pipeline", path: "#/pipeline/simulator", label: "Pipeline" },
+  { id: "pipeline", path: "#/pipeline/simulator", label: "Data Pipeline" },
   { id: "trust", path: "#/trust", label: "Why trust us" },
 ];
 

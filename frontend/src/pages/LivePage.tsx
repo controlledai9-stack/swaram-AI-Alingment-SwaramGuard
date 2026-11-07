@@ -8,7 +8,7 @@ import { shortId, friendlyAgentName } from "../lib/format";
 import { type LiveMessage, useLiveStream } from "../lib/live";
 import { useAppState } from "../state";
 import type { AgentCount } from "../types";
-import { Zap, ShieldAlert, Lock, Play, Square, Filter } from "lucide-react";
+import { Zap, ShieldAlert, Lock, Play, Square, Filter, RefreshCw } from "lucide-react";
 
 type AnyData = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -142,6 +142,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+  const [runName, setRunName] = useState("");
   const [userTask, setUserTask] = useState("");
   const [showRoleInstructions, setShowRoleInstructions] = useState(false);
   const [agentInstructions, setAgentInstructions] = useState<Record<string, string>>({
@@ -324,11 +325,13 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
         agent_instructions: Object.keys(cleanInstructions).length > 0 ? cleanInstructions : undefined,
       });
       setStartedRun(r.run_id);
+      const startTimeStr = new Date().toLocaleTimeString();
       setStatus({
         kind: "success",
         message: (
           <>
-            Streaming run <code className="font-mono">{r.run_id}</code>. Safety triggers active.
+            Started {runName ? <strong>"{runName}"</strong> : "run"}{" "}
+            <code className="font-mono">{r.run_id}</code> at {startTimeStr}. Safety triggers active.
           </>
         ),
       });
@@ -344,7 +347,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
   return (
     <div className="min-w-0 space-y-6">
       <PageHeader
-        title="Live Guard."
+        title="Agent Runtime."
         subtitle="Watch autonomous agents collaborate in real time. Emergency pause and stop controls."
         actions={
           <div className="flex flex-wrap items-center gap-3">
@@ -393,6 +396,17 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   />
                 </div>
 
+                <div className="w-[140px] sm:w-[170px]">
+                  <input
+                    type="text"
+                    value={runName}
+                    onChange={(e) => setRunName(e.target.value)}
+                    placeholder="Event/Run name..."
+                    className="h-8 w-full rounded-full border border-[var(--hairline)] bg-[var(--card)] px-3 text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
+                    aria-label="Event or run name"
+                  />
+                </div>
+
                 <div className="flex items-center gap-1.5 text-[13px]">
                   <span className="text-[var(--text-3)] font-medium">Agents:</span>
                   <Segmented
@@ -400,6 +414,17 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                     value={count}
                     onChange={setCount}
                     options={[5, 10, 20].map((n) => ({ value: n as AgentCount, label: n }))}
+                  />
+                </div>
+
+                <div className="w-[140px] sm:w-[170px]">
+                  <input
+                    type="text"
+                    value={runName}
+                    onChange={(e) => setRunName(e.target.value)}
+                    placeholder="Event/Run name..."
+                    className="h-8 w-full rounded-full border border-[var(--hairline)] bg-[var(--card)] px-3 text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
+                    aria-label="Event or run name"
                   />
                 </div>
 
@@ -420,10 +445,19 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   type="button"
                   onClick={() => start()}
                   disabled={busy}
-                  className="h-8 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-opacity flex items-center gap-1.5 disabled:opacity-50"
+                  className="h-8 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  <Play size={13} className="fill-current" />
-                  <span>Start</span>
+                  {busy ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      <span>Starting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play size={13} className="fill-current" />
+                      <span>Start</span>
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -612,58 +646,99 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
               }
             >
               {agents.length ? (
-                <ul className="space-y-2 text-[14px]">
-                  {agents.map(([id, a]) => {
-                    const isSelected = selectedAgentFilter === id;
-                    const isPaused = a.state === "paused";
-                    return (
-                      <li
-                        key={id}
-                        onClick={() => setSelectedAgentFilter(isSelected ? null : id)}
-                        className={`group flex cursor-pointer items-center justify-between gap-2 rounded-xl p-2.5 border transition-all ${
-                          isSelected
-                            ? "border-[var(--accent)] bg-[var(--accent)]/5"
-                            : "border-[var(--hairline-subtle)] bg-[var(--card)] hover:border-[var(--text-3)]"
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-[13px] font-semibold text-[var(--text)] truncate">
-                            {friendlyAgentName(id, a.role)}
-                          </div>
-                          <div className="font-mono text-[11px] text-[var(--text-3)]">
-                            {shortId(id)} &middot; <span className="capitalize">{a.role}</span>
-                          </div>
-                        </div>
+                <div className="space-y-4">
+                  {/* High Risk Section (flagged or stopped agents) */}
+                  {agents.filter(([, a]) => a.state === "paused" || a.trigger).length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between px-1 text-[11px] font-bold uppercase tracking-wider text-rose-700">
+                        <span>High Risk ({agents.filter(([, a]) => a.state === "paused" || a.trigger).length})</span>
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] text-white font-bold">!</span>
+                      </div>
+                      <ul className="space-y-1.5 text-[14px]">
+                        {agents.filter(([, a]) => a.state === "paused" || a.trigger).map(([id, a]) => {
+                          const isSelected = selectedAgentFilter === id;
+                          return (
+                            <li
+                              key={id}
+                              onClick={() => setSelectedAgentFilter(isSelected ? null : id)}
+                              className={`group flex cursor-pointer items-center justify-between gap-2 rounded-xl p-2.5 border transition-all ${
+                                isSelected
+                                  ? "border-rose-400 bg-rose-50/70"
+                                  : "border-rose-200 bg-rose-50/30 hover:border-rose-300"
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-[13px] font-semibold text-rose-950 truncate">
+                                  {friendlyAgentName(id, a.role)}
+                                </div>
+                                <div className="font-mono text-[11px] text-rose-700/80">
+                                  {shortId(id)} &middot; <span className="capitalize">{a.role}</span>
+                                </div>
+                              </div>
+                              <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-rose-600 text-white">
+                                Stopped
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
 
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                              isPaused ? "bg-rose-500/10 text-rose-700 font-semibold" : "bg-emerald-500/10 text-[#1F7A45]"
+                  {/* Low Risk / Safe Section */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between px-1 text-[11px] font-bold uppercase tracking-wider text-[#1F7A45]">
+                      <span>Low Risk / Safe ({agents.filter(([, a]) => a.state !== "paused" && !a.trigger).length})</span>
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    </div>
+                    <ul className="space-y-1.5 text-[14px]">
+                      {agents.filter(([, a]) => a.state !== "paused" && !a.trigger).map(([id, a]) => {
+                        const isSelected = selectedAgentFilter === id;
+                        return (
+                          <li
+                            key={id}
+                            onClick={() => setSelectedAgentFilter(isSelected ? null : id)}
+                            className={`group flex cursor-pointer items-center justify-between gap-2 rounded-xl p-2.5 border transition-all ${
+                              isSelected
+                                ? "border-[var(--accent)] bg-[var(--accent)]/5"
+                                : "border-[var(--hairline-subtle)] bg-[var(--card)] hover:border-[var(--text-3)]"
                             }`}
                           >
-                            {isPaused ? "Stopped" : "Active"}
-                          </span>
+                            <div className="min-w-0">
+                              <div className="text-[13px] font-semibold text-[var(--text)] truncate">
+                                {friendlyAgentName(id, a.role)}
+                              </div>
+                              <div className="font-mono text-[11px] text-[var(--text-3)]">
+                                {shortId(id)} &middot; <span className="capitalize">{a.role}</span>
+                              </div>
+                            </div>
 
-                          {/* Pause button on hover when active */}
-                          {!isPaused && running && (
-                            <button
-                              type="button"
-                              className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
-                              disabled={acting === id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                operate(id);
-                              }}
-                              aria-label={`Pause ${id}`}
-                            >
-                              {acting === id ? "…" : "Pause"}
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-500/10 text-[#1F7A45]">
+                                Active
+                              </span>
+
+                              {running && (
+                                <button
+                                  type="button"
+                                  className="opacity-0 group-hover:opacity-100 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-40"
+                                  disabled={acting === id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    operate(id);
+                                  }}
+                                  aria-label={`Pause ${id}`}
+                                >
+                                  {acting === id ? "…" : "Pause"}
+                                </button>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
               ) : (
                 <Empty>Agents appear when a run starts.</Empty>
               )}

@@ -279,7 +279,7 @@ export function OverviewPage() {
               href="#/live"
               className="text-[13px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
             >
-              <span>Watch live feed</span>
+              <span>Watch agent runtime</span>
               <ArrowRight size={13} />
             </a>
           </div>
