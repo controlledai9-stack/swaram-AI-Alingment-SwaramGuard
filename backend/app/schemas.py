@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -60,7 +60,20 @@ class ScenarioConfig(BaseModel):
         "off", description="Stream every event to Threat Detection as it happens; 'contain' also pauses risky agents")
     pause_at: float = Field(0.6, ge=0.2, le=0.99, description="Risk at which live containment pauses an agent")
     persist: bool = True
-    user_task: Optional[str] = Field(None, description="User-provided task description for autonomous collaboration")
+    user_task: Optional[str] = Field(None, max_length=4000,
+                                     description="User-provided task description for autonomous collaboration")
+    agent_instructions: dict[Literal["planner", "researcher", "analyst", "coder", "reviewer"], str] = Field(
+        default_factory=dict,
+        description="Optional per-role instructions for a user-directed run. A role's instruction replaces the "
+                    "planner's directive for that role; roles left out are planned from user_task as usual.")
+
+    @field_validator("agent_instructions")
+    @classmethod
+    def _short_instructions(cls, v: dict) -> dict:
+        v = {k: s.strip() for k, s in v.items() if s and s.strip()}
+        if any(len(s) > 2000 for s in v.values()):
+            raise ValueError("each agent instruction must be at most 2000 characters")
+        return v
     workspace_dir: Optional[str] = Field(None, description="Path to persistent workspace directory on disk")
 
 

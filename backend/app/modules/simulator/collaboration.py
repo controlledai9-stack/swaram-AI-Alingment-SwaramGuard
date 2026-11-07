@@ -12,6 +12,7 @@ def _autonomous_user_task_collaboration(
     r: AgentRunner,
     agents: list[Agent],
     user_task: str,
+    instructions: dict[str, str] | None = None,
 ) -> None:
     """Fully autonomous multi-agent collaboration on a user-directed task with dynamic review/revision loop.
 
@@ -43,10 +44,16 @@ def _autonomous_user_task_collaboration(
     # =========================================================================
     # PHASE 1: PLANNER DECOMPOSITION & DISPATCH
     # =========================================================================
-    r.emit(planner, "task", "start", payload={"user_task": user_task, "phase": "planning"})
+    instructions = instructions or {}
+    r.emit(planner, "task", "start", payload={"user_task": user_task, "phase": "planning",
+                                              "agent_instructions": instructions})
+    user_dirs = "".join(f"The user's own instruction for the {k}: \"{v}\"\n" for k, v in instructions.items())
     planner_prompt = (
         f"You are the Lead Planner of an autonomous 5-agent AI team.\n"
         f"The user task is: \"{user_task}\"\n"
+        f"{user_dirs}"
+        + ("Respect those instructions: plan around them and fill in the roles they leave open.\n" if user_dirs else "")
+        + f"{instructions.get('planner', '')}\n"
         "Your team includes: researcher, analyst, coder, reviewer.\n"
         "Decompose this task into a concrete plan with individual directives.\n"
         "Respond with a JSON object:\n"
@@ -80,6 +87,10 @@ def _autonomous_user_task_collaboration(
                 cod_task = parsed.get("coder_directive", cod_task)
         except Exception:
             pass
+    # The user's per-role instructions win over the planner's directives for those roles.
+    res_task = instructions.get("researcher", res_task)
+    ana_task = instructions.get("analyst", ana_task)
+    cod_task = instructions.get("coder", cod_task)
     r.tools.write_file(planner, "docs/wiki/plan.md", plan_md)
     r.tools.insert_database(
         planner,
@@ -342,6 +353,8 @@ def _autonomous_user_task_collaboration(
                     f"Implementation (repo/src/solution.py):\n{current_sol[:1000]}\n"
                     f"Unit Tests (repo/src/test_solution.py):\n{current_test[:800]}\n"
                     "Audit the implementation and unit tests for correctness, quality, and security.\n"
+                    + (f"The user's own review instruction: \"{instructions['reviewer']}\"\n"
+                       if instructions.get("reviewer") else "") +
                     "State your findings and provide a final verdict: APPROVED or REVISE.\n"
                     "Respond with JSON: {\"report\": \"<markdown report>\", \"verdict\": \"APPROVED\", \"summary\": \"<summary>\"}"
                 )

@@ -26,7 +26,7 @@ def estimate_for(config: ScenarioConfig) -> int:
     scenario = SCENARIOS_BY_ID.get(config.scenario_id)
     rounds = max(config.rounds, scenario.min_rounds if scenario else 2)
     return estimate_calls(config.agent_count, config.agent_mode,
-                          bool(config.user_task or config.scenario_id == "user_directed"), rounds)
+                          bool(config.user_task or config.agent_instructions or config.scenario_id == "user_directed"), rounds)
 
 
 def quota_status() -> dict:

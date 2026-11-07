@@ -45,6 +45,11 @@ No model is needed: everything runs offline with scripted agents, and real model
   happened). Where the monitor lost events, an unmatched claim is marked unverified, not a lie. An independent state
   check on a real database catches the lies a log can't show (wrong values, forged log entries): 100% vs 0% for a
   log-only check (`docs/threat-model.md` §26).
+- **Swarm forensics** (`scripts/swarm_traces_forensics.py`): from destinations and identities alone, 74% of the
+  Swarm Traces identities form one cluster; a content-blind gateway monitor and SG-029 each flag about a quarter of the
+  payloads, and together 40% (`docs/swarm-traces.md` §4).
+- **Your own task**: an AI run can take one task the planner splits (`user_task`), or a separate instruction per agent
+  (`agent_instructions`: planner, researcher, analyst, coder, reviewer).
 - **collusion.wiki** (agents using a wiki as a message board): a content-blind monitor flagged the store as a
   multi-agent board ~21 days before the first labelled live coordination (`docs/swarm-traces.md` §3).
 - **Operations**: OCSF alert export for SIEMs, OWASP Agentic Top 10 coverage map, API keys with roles, a Gemini quota meter that refuses runs that won't fit, a dataset generator, an
