@@ -158,8 +158,8 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     api.whoami().then((w) => setUserRole(w.role)).catch(() => setUserRole("local"));
   }, []);
 
-  // Feed filter: actions (default), alerts, everything
-  const [feedFilter, setFeedFilter] = useState<"actions" | "alerts" | "everything">("actions");
+  // Feed filter: contaminants, blocks, detections, all (critical first, all at the end)
+  const [feedFilter, setFeedFilter] = useState<"contaminant" | "block" | "detection" | "all">("all");
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string | null>(null);
 
   // Derive live KPIs
@@ -281,20 +281,31 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
           if (agentId !== selectedAgentFilter) return false;
         }
 
-        // Category filter
-        if (feedFilter === "actions") {
-          // Stopped actions and alerts
+        // Category filter: Contaminants (critical) -> Blocks -> Detections -> All
+        if (feedFilter === "contaminant") {
           return (
-            m.type === "containment" ||
-            m.type === "detection" ||
             m.type === "quarantine" ||
-            (m.type === "event" && m.data.status === "denied")
+            m.type === "containment" ||
+            (m.data && (m.data.trigger === "circuit_breaker" || String(m.data.explanation || "").includes("circuit breaker"))) ||
+            (m.type === "detection" && (m.data.severity === "critical" || m.data.severity === "high" || m.data.rule_id === "SG-029"))
           );
         }
-        if (feedFilter === "alerts") {
-          return m.type === "detection" || m.type === "quarantine";
+        if (feedFilter === "block") {
+          return (
+            m.type === "event" &&
+            (m.data.status === "denied" ||
+              m.data.gateway_decision === "blocked" ||
+              (m.data.payload?.gateway_reason &&
+                (String(m.data.payload.gateway_reason).includes("before execution") ||
+                  String(m.data.payload.gateway_reason).includes("pre-execution") ||
+                  String(m.data.payload.gateway_reason).includes("not allowed") ||
+                  String(m.data.payload.gateway_reason).includes("blocked"))))
+          );
         }
-        return true; // everything
+        if (feedFilter === "detection") {
+          return m.type === "detection";
+        }
+        return true; // all
       })
       .slice(-1000)
       .reverse();
@@ -378,8 +389,9 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
           {/* Top Control Bar: Start Run and Emergency Stop */}
           <div className="rounded-[var(--r-card)] card p-4 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="w-[180px] sm:w-[220px]">
+              <div className="flex flex-wrap items-center gap-3.5 flex-1 min-w-0">
+                {/* Scenario Selector: Spacious, comfortable, accessible */}
+                <div className="min-w-[280px] sm:min-w-[340px] md:min-w-[380px] flex-1 max-w-[480px]">
                   <CustomSelect
                     value={scenario}
                     onChange={(val) => { setScenario(val); if (val === "user_directed") setAi(true); }}
@@ -391,47 +403,25 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                           description: s.description,
                         })) ?? []
                     }
-                    size="sm"
-                    ariaLabel="Select scenario for live run"
+                    size="md"
+                    ariaLabel="Select attack scenario or collaborative task for live run"
                   />
                 </div>
 
-                <div className="w-[140px] sm:w-[170px]">
-                  <input
-                    type="text"
-                    value={runName}
-                    onChange={(e) => setRunName(e.target.value)}
-                    placeholder="Event/Run name..."
-                    className="h-8 w-full rounded-full border border-[var(--hairline)] bg-[var(--card)] px-3 text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
-                    aria-label="Event or run name"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1.5 text-[13px]">
+                <div className="flex items-center gap-2 text-[14px]">
                   <span className="text-[var(--text-3)] font-medium">Agents:</span>
                   <Segmented
-                    size="sm"
+                    size="md"
                     value={count}
                     onChange={setCount}
                     options={[5, 10, 20].map((n) => ({ value: n as AgentCount, label: n }))}
                   />
                 </div>
 
-                <div className="w-[140px] sm:w-[170px]">
-                  <input
-                    type="text"
-                    value={runName}
-                    onChange={(e) => setRunName(e.target.value)}
-                    placeholder="Event/Run name..."
-                    className="h-8 w-full rounded-full border border-[var(--hairline)] bg-[var(--card)] px-3 text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
-                    aria-label="Event or run name"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1.5 text-[13px]">
+                <div className="flex items-center gap-2 text-[14px]">
                   <span className="text-[var(--text-3)] font-medium">Mode:</span>
                   <Segmented
-                    size="sm"
+                    size="md"
                     value={ai ? "ai" : "scripted"}
                     onChange={(v) => setAi(v === "ai")}
                     options={[
@@ -445,16 +435,16 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   type="button"
                   onClick={() => start()}
                   disabled={busy}
-                  className="h-8 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  className="h-10 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-5 text-[14px] shadow-sm transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   {busy ? (
                     <>
-                      <RefreshCw size={13} className="animate-spin" />
+                      <RefreshCw size={14} className="animate-spin" />
                       <span>Starting…</span>
                     </>
                   ) : (
                     <>
-                      <Play size={13} className="fill-current" />
+                      <Play size={14} className="fill-current" />
                       <span>Start</span>
                     </>
                   )}
@@ -467,38 +457,54 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                   type="button"
                   disabled={acting === "stop"}
                   onClick={() => operate(null)}
-                  className="h-8 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5"
+                  className="h-10 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-5 text-[14px] shadow-xs transition-colors flex items-center gap-2"
                 >
-                  <Square size={13} className="fill-current" />
+                  <Square size={14} className="fill-current" />
                   <span>Stop run</span>
                 </button>
               )}
             </div>
+
+            {/* AI Directives & Run Configuration (when Mode: AI or user_directed) */}
             {(ai || scenario === "user_directed") && (
-              <div className="mt-3 pt-3 border-t border-[var(--hairline-subtle)] space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13px] font-semibold text-[var(--text)] flex items-center gap-1.5">
-                      <span>Task prompt</span>
-                      <span className="text-[11px] font-normal text-[var(--text-3)]">
-                        (The user-directed objective for the swarm to collaboratively solve)
-                      </span>
+              <div className="mt-4 pt-4 border-t border-[var(--hairline-subtle)] space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-1">
+                    <label className="text-[13px] font-semibold text-[var(--text)] block mb-1">
+                      Event / Run name (optional)
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowRoleInstructions((s) => !s)}
-                      className="text-[12px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
-                    >
-                      {showRoleInstructions ? "Hide role instructions ▲" : "Per-agent instructions ▼"}
-                    </button>
+                    <input
+                      type="text"
+                      value={runName}
+                      onChange={(e) => setRunName(e.target.value)}
+                      placeholder={`e.g. ${scenario.replace(/_/g, " ")}`}
+                      className="h-10 w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
+                    />
                   </div>
-                  <textarea
-                    rows={2}
-                    className="w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 py-2 text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
-                    placeholder="e.g. Collaboratively design and implement a secure data pipeline with automated unit tests..."
-                    value={userTask}
-                    onChange={(e) => setUserTask(e.target.value)}
-                  />
+                  <div className="md:col-span-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[13px] font-semibold text-[var(--text)] flex items-center gap-1.5">
+                        <span>Task prompt</span>
+                        <span className="text-[11px] font-normal text-[var(--text-3)]">
+                          (The user-directed objective for the swarm to collaboratively solve)
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowRoleInstructions((s) => !s)}
+                        className="text-[12px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
+                      >
+                        {showRoleInstructions ? "Hide role instructions ▲" : "Per-agent instructions ▼"}
+                      </button>
+                    </div>
+                    <textarea
+                      rows={2}
+                      className="w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 py-2 text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
+                      placeholder="e.g. Collaboratively design and implement a secure data pipeline with automated unit tests..."
+                      value={userTask}
+                      onChange={(e) => setUserTask(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {showRoleInstructions && (
@@ -769,50 +775,63 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 </div>
               }
             >
-              {/* Filter pills: [Actions] (default: stopped actions and alerts) · [Alerts] · [Everything] */}
+              {/* Filter pills: [Contaminants] · [Blocks] · [Detections] · [All] */}
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--hairline-subtle)] pb-3 text-[13px]">
                 <div className="inline-flex rounded-full bg-[var(--hairline-subtle)] p-0.5 text-[12px]">
                   <button
                     type="button"
-                    onClick={() => setFeedFilter("actions")}
+                    onClick={() => setFeedFilter("contaminant")}
                     className={`rounded-full px-3.5 py-1 font-medium transition-all ${
-                      feedFilter === "actions"
-                        ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
-                        : "text-[var(--text-2)]"
+                      feedFilter === "contaminant"
+                        ? "bg-rose-600 text-white shadow-xs"
+                        : "text-[var(--text-2)] hover:text-[var(--text)]"
                     }`}
                   >
-                    Actions
+                    Contaminants
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFeedFilter("alerts")}
+                    onClick={() => setFeedFilter("block")}
                     className={`rounded-full px-3.5 py-1 font-medium transition-all ${
-                      feedFilter === "alerts"
+                      feedFilter === "block"
                         ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
-                        : "text-[var(--text-2)]"
+                        : "text-[var(--text-2)] hover:text-[var(--text)]"
                     }`}
                   >
-                    Alerts
+                    Blocks
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFeedFilter("everything")}
+                    onClick={() => setFeedFilter("detection")}
                     className={`rounded-full px-3.5 py-1 font-medium transition-all ${
-                      feedFilter === "everything"
+                      feedFilter === "detection"
                         ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
-                        : "text-[var(--text-2)]"
+                        : "text-[var(--text-2)] hover:text-[var(--text)]"
                     }`}
                   >
-                    Everything
+                    Detections
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedFilter("all")}
+                    className={`rounded-full px-3.5 py-1 font-medium transition-all ${
+                      feedFilter === "all"
+                        ? "bg-[var(--card)] text-[var(--text)] shadow-xs"
+                        : "text-[var(--text-2)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    All
                   </button>
                 </div>
 
                 <div className="text-[12px] text-[var(--text-3)]">
-                  {feedFilter === "actions"
-                    ? "Showing stopped actions and alerts"
-                    : feedFilter === "alerts"
-                    ? "Showing security alerts"
-                    : "Showing complete event activity"}
+                  {feedFilter === "contaminant"
+                    ? "Showing critical contaminants, quarantined agents, and high-risk leaks"
+                    : feedFilter === "block"
+                    ? "Showing actions stopped before execution by policy gateway"
+                    : feedFilter === "detection"
+                    ? "Showing threat detection alerts"
+                    : "Showing all streaming events"}
                   {selectedAgentFilter ? ` for ${shortId(selectedAgentFilter)}` : ""}
                 </div>
               </div>
