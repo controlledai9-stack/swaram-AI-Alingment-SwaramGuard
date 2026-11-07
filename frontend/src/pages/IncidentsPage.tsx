@@ -13,7 +13,7 @@ import { time } from "../lib/format";
 import { deriveIncidentTitle, getAgentRole } from "../lib/incidentHelper";
 import { useLiveStream } from "../lib/live";
 import type { Alert, NormalizedEvent, ReviewItem } from "../types";
-import { Check, Copy, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, Copy, ChevronDown, ChevronUp, ShieldAlert } from "lucide-react";
 
 function AgentRoleBadge({
   agentId,
@@ -197,6 +197,74 @@ export function IncidentsPage({
     );
   };
 
+  // Render individual alert button
+  const renderAlertButton = (a: Alert) => {
+    const isSelected = a.alert_id === currentAlert?.alert_id;
+    const shortTitle = deriveIncidentTitle(a, agents, normalizedEvents);
+    const unverified = isUnverifiedClaim(a);
+    const relatedReview = reviews.find((r) => a.agent_ids?.includes(r.agent_id));
+
+    return (
+      <button
+        key={a.alert_id}
+        onClick={() => {
+          setSelectedId(a.alert_id);
+          window.location.hash = `#/incidents/${a.alert_id}`;
+        }}
+        type="button"
+        className={`w-full rounded-[var(--r-card)] card p-4 text-left transition-all ${
+          unverified
+            ? "border-stone-300 bg-stone-500/5 hover:border-stone-400"
+            : isSelected
+            ? "!border-[var(--accent)] ring-1 ring-[var(--accent)] shadow-[var(--shadow-1)]"
+            : "hover:border-[var(--text-3)]"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {unverified ? (
+              <span className="rounded-full bg-stone-500/10 px-2 py-0.5 text-[11px] font-medium text-stone-600 border border-stone-300">
+                Can't check
+              </span>
+            ) : (
+              <Pill value={a.severity} />
+            )}
+            <span className="font-mono text-[12px] text-[var(--text-3)]">{a.rule_id}</span>
+          </div>
+          <span className="text-[12px] text-[var(--text-3)]">{time(a.created_at)}</span>
+        </div>
+
+        <div className="mt-2 text-[15px] font-semibold text-[var(--text)] line-clamp-2">
+          {shortTitle}
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[14px] text-[var(--text-2)]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[12px] text-[var(--text-3)]">Roles:</span>
+            {a.agent_ids.map((id) => (
+              <AgentRoleBadge
+                key={id}
+                agentId={id}
+                role={getAgentRole(id, agents, normalizedEvents)}
+              />
+            ))}
+          </div>
+          {relatedReview && relatedReview.status !== "pending" && (
+            <span
+              className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                relatedReview.status === "released"
+                  ? "bg-emerald-500/10 text-[#1F7A45]"
+                  : "bg-rose-500/10 text-rose-700"
+              }`}
+            >
+              {relatedReview.status === "released" ? "Released" : "Kept contained"}
+            </span>
+          )}
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -314,75 +382,28 @@ export function IncidentsPage({
                   {alerts.length} Incident{alerts.length === 1 ? "" : "s"} Recorded
                 </div>
 
-                <div className="space-y-2 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
-                  {alerts.map((a) => {
-                    const isSelected = a.alert_id === currentAlert.alert_id;
-                    const shortTitle = deriveIncidentTitle(a, agents, normalizedEvents);
-                    const unverified = isUnverifiedClaim(a);
+                                <div className="space-y-4 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
+                  {/* High Risk Group */}
+                  {alerts.filter(a => a.severity === "critical" || a.severity === "high").length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[12px] font-bold text-rose-700 uppercase tracking-wider px-1 flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-rose-600" />
+                        <span>High Risk ({alerts.filter(a => a.severity === "critical" || a.severity === "high").length})</span>
+                      </div>
+                      {alerts.filter(a => a.severity === "critical" || a.severity === "high").map(renderAlertButton)}
+                    </div>
+                  )}
 
-                    // Find if any agent in this alert has a recorded decision
-                    const relatedReview = reviews.find((r) => a.agent_ids?.includes(r.agent_id));
-
-                    return (
-                      <button
-                        key={a.alert_id}
-                        onClick={() => {
-                          setSelectedId(a.alert_id);
-                          window.location.hash = `#/incidents/${a.alert_id}`;
-                        }}
-                        type="button"
-                        className={`w-full rounded-[var(--r-card)] card p-4 text-left transition-all ${
-                          unverified
-                            ? "border-stone-300 bg-stone-500/5 hover:border-stone-400"
-                            : isSelected
-                            ? "!border-[var(--accent)] ring-1 ring-[var(--accent)] shadow-[var(--shadow-1)]"
-                            : "hover:border-[var(--text-3)]"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            {unverified ? (
-                              <span className="rounded-full bg-stone-500/10 px-2 py-0.5 text-[11px] font-medium text-stone-600 border border-stone-300">
-                                Can&apos;t check
-                              </span>
-                            ) : (
-                              <Pill value={a.severity} />
-                            )}
-                            <span className="font-mono text-[12px] text-[var(--text-3)]">{a.rule_id}</span>
-                          </div>
-                          <span className="text-[12px] text-[var(--text-3)]">{time(a.created_at)}</span>
-                        </div>
-
-                        <div className="mt-2 text-[15px] font-semibold text-[var(--text)] line-clamp-2">
-                          {shortTitle}
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[14px] text-[var(--text-2)]">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-[12px] text-[var(--text-3)]">Roles:</span>
-                            {a.agent_ids.map((id) => (
-                              <AgentRoleBadge
-                                key={id}
-                                agentId={id}
-                                role={getAgentRole(id, agents, normalizedEvents)}
-                              />
-                            ))}
-                          </div>
-                          {relatedReview && relatedReview.status !== "pending" && (
-                            <span
-                              className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                                relatedReview.status === "released"
-                                  ? "bg-emerald-500/10 text-[#1F7A45]"
-                                  : "bg-rose-500/10 text-rose-700"
-                              }`}
-                            >
-                              {relatedReview.status === "released" ? "Released" : "Kept contained"}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
+                  {/* Low Risk / Monitored Group */}
+                  {alerts.filter(a => a.severity !== "critical" && a.severity !== "high").length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[12px] font-semibold text-[var(--text-3)] uppercase tracking-wider px-1 flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        <span>Low Risk / Monitored ({alerts.filter(a => a.severity !== "critical" && a.severity !== "high").length})</span>
+                      </div>
+                      {alerts.filter(a => a.severity !== "critical" && a.severity !== "high").map(renderAlertButton)}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -433,6 +454,81 @@ export function IncidentsPage({
                     </span>
                   </div>
                 </div>
+
+                {/* Direct Security Action Controls */}
+                {currentAlert && (
+                  <div className="mt-6 rounded-xl border border-[var(--hairline)] bg-[var(--card-alt)] p-4 shadow-2xs">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] block mb-1">
+                          Direct Security Control
+                        </span>
+                        <div className="text-[13px] text-[var(--text)]">
+                          {pendingReviews.some(r => currentAlert.agent_ids.includes(r.agent_id)) ? (
+                            <span className="text-rose-700 font-semibold flex items-center gap-1.5">
+                              <ShieldAlert size={14} />
+                              <span>Agent is stopped and awaiting review</span>
+                            </span>
+                          ) : (
+                            <span className="text-[var(--text-2)]">
+                              Immediate intervention controls for agents in this incident
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {pendingReviews.filter(r => currentAlert.agent_ids.includes(r.agent_id)).length > 0 ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const rev = pendingReviews.find(r => currentAlert.agent_ids.includes(r.agent_id));
+                                if (rev) handleDecide(rev.review_id, "release");
+                              }}
+                              disabled={decidingId !== null}
+                              className="h-8.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <Check size={13} />
+                              <span>Resume / Release</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const rev = pendingReviews.find(r => currentAlert.agent_ids.includes(r.agent_id));
+                                if (rev) handleDecide(rev.review_id, "confirm");
+                              }}
+                              disabled={decidingId !== null}
+                              className="h-8.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <ShieldAlert size={13} />
+                              <span>Keep Contained (Block)</span>
+                            </button>
+                          </>
+                        ) : (
+                          currentAlert.agent_ids.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!selectedRunId) return;
+                                try {
+                                  await api.operateAgent(selectedRunId, currentAlert.agent_ids[0], "pause", "Manually stopped from incident forensic view");
+                                  setReviewTick(t => t + 1);
+                                } catch (e) {
+                                  setActionError((e as Error).message);
+                                }
+                              }}
+                              className="h-8.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <ShieldAlert size={13} />
+                              <span>Block Agent</span>
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Sub-tabs: Summary · Evidence */}
                 <div className="mt-6 flex border-b border-[var(--hairline-subtle)]">
