@@ -40,7 +40,7 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
       {!hideHeader && (
         <PageHeader
           title="Responses."
-          subtitle="Auditable mitigation actions mapped from threat alerts to controllable gateway decisions."
+          subtitle="See the actions recorded for this run and whether they were simulated or enforced."
           actions={
             <a
               href="#/pipeline/response"
@@ -53,12 +53,12 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
         />
       )}
 
-            {/* Containment decisions callout linking to Incidents */}
+      {/* Pending review actions link to Incidents */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--hairline)] bg-[var(--card)] p-4 shadow-xs">
         <div>
-          <div className="text-[14px] font-semibold text-[var(--text)]">Adjudication &amp; Containment Decisions</div>
-          <div className="text-[13px] text-[var(--text-2)]">
-            Every stopped agent waiting for human review is decided on Incidents &rarr; Needs decision.
+          <div className="text-[14px] font-semibold text-[var(--text)]">Pending agent decisions</div>
+          <div className="text-[14px] text-[var(--text-2)]">
+            Review pending decisions on the Incidents page.
           </div>
         </div>
         <a
@@ -88,7 +88,7 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
             <div className="font-semibold text-[var(--text)]">
               {allSimulated
                 ? "Simulation Replay Mode Active"
-                : "Active Gateway Enforcement Active"}
+                : "Gateway enforcement recorded"}
             </div>
             <div className="mt-1">
               {allSimulated ? (
@@ -97,7 +97,7 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
                 </span>
               ) : (
                 <span>
-                  {enforcedResponses.length} of {responses.length} mitigation actions were verified and actively enforced at the gateway.
+                  {enforcedResponses.length} of {responses.length} actions were recorded as enforced at the gateway.
                 </span>
               )}
             </div>
@@ -127,16 +127,9 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
             </div>
           </div>
           <div className="rounded-[var(--r-card)] card p-5 shadow-[var(--shadow-1)]">
-            <span className="text-[14px] font-medium text-[var(--text-2)]">Containment Rate</span>
-            <div className="mt-2 text-[32px] font-light tracking-tight text-[var(--accent)]">
-              {responses.length > 0
-                ? `${Math.round(
-                    (responses.filter((r) => r.decision === "block" || r.decision === "pause")
-                      .length /
-                      responses.length) *
-                      100
-                  )}%`
-                : "0%"}
+            <span className="text-[14px] font-medium text-[var(--text-2)]">Alert links</span>
+            <div className="mt-2 text-[32px] font-light tracking-tight text-[var(--text)]">
+              {new Set(responses.map((response) => response.alert_id).filter(Boolean)).size}
             </div>
           </div>
         </div>
@@ -146,6 +139,8 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
       {enforcedResponses.length > 0 && simulatedResponses.length > 0 && (
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            aria-pressed={modeFilter === "all"}
             onClick={() => setModeFilter("all")}
             className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition-colors ${
               modeFilter === "all"
@@ -156,6 +151,8 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
             All actions ({responses.length})
           </button>
           <button
+            type="button"
+            aria-pressed={modeFilter === "enforced"}
             onClick={() => setModeFilter("enforced")}
             className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition-colors ${
               modeFilter === "enforced"
@@ -166,6 +163,8 @@ export function ResponsesPage({ hideHeader = false }: { hideHeader?: boolean } =
             Enforced only ({enforcedResponses.length})
           </button>
           <button
+            type="button"
+            aria-pressed={modeFilter === "simulated"}
             onClick={() => setModeFilter("simulated")}
             className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition-colors ${
               modeFilter === "simulated"

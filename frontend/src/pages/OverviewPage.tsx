@@ -9,14 +9,13 @@ import { friendlyAgentName } from "../lib/format";
 import { ArrowRight, ShieldCheck, ShieldAlert, Play, Check } from "lucide-react";
 
 export function OverviewPage() {
-  const { selectedRunId, runs, selectRun, refreshRuns } = useAppState();
+  const { selectedRunId, selectRun, refreshRuns } = useAppState();
   const alertsData = useRunData(api.alerts, selectedRunId);
   const responsesData = useRunData(api.responses, selectedRunId);
   const agentsData = useRunData(api.agents, selectedRunId);
   const graphData = useRunData(api.graph, selectedRunId);
   const reviewsData = useRunData(() => api.reviews("pending"), "pending-reviews");
 
-  const currentRun = runs.find((r) => r.run_id === selectedRunId);
   const alerts = alertsData.data ?? [];
   const responses = responsesData.data ?? [];
   const agents = agentsData.data ?? [];
@@ -35,7 +34,13 @@ export function OverviewPage() {
     return set;
   }, [alerts]);
 
-  const topAlert = alerts[0];
+  const topAlert = useMemo(() => {
+    const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    return [...alerts].sort((a, b) =>
+      (severityRank[b.severity] ?? 0) - (severityRank[a.severity] ?? 0) ||
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0];
+  }, [alerts]);
   const totalIncidents = alerts.length;
 
   // Severity breakdown
@@ -48,8 +53,7 @@ export function OverviewPage() {
     (r) => r.mode === "enforced" && (r.outcome === "blocked" || r.decision === "block")
   ).length;
 
-  // Metric 2: Agents stopped
-  const agentsStoppedCount = currentRun?.labels.malicious_agent_ids.length ?? (alerts.length > 0 ? 2 : 0);
+  const flaggedAgentsCount = new Set(alerts.flatMap((alert) => alert.agent_ids ?? [])).size;
 
   // Metric 4: Can't check (SG-030 low-severity claims where monitor lost events)
   const cantCheckCount = alerts.filter(
@@ -120,16 +124,16 @@ export function OverviewPage() {
       {/* Page Header */}
       <div className="space-y-1">
         <h1 className="text-[36px] sm:text-[44px] font-bold tracking-tight text-[var(--text)]">
-          Dashboard.
+          SwarmGuard.
         </h1>
         <p className="text-[16px] text-[var(--text-2)]">
-          Current safety status across all autonomous agents in your swarm.
+          See what happened in your run, why it was flagged, and what response followed.
         </p>
       </div>
 
       {/* Hero: If No Run Selected -> Clean "Start live demo" Banner */}
       {isNoRun && (
-        <div className="rounded-[var(--r-tile)] card p-10 text-center shadow-[var(--shadow-1)] border border-[var(--hairline)]">
+        <div className="rounded-[var(--r-tile)] card p-8 text-center shadow-[var(--shadow-1)] border border-[var(--hairline)]">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)] mb-4">
             <Play size={28} className="fill-current ml-0.5" />
           </div>
@@ -137,7 +141,7 @@ export function OverviewPage() {
             No active run selected
           </h2>
           <p className="mt-2 text-[15px] text-[var(--text-2)] max-w-lg mx-auto">
-            Launch a realistic multi-agent attack scenario to observe real-time threat detection, stopping harmful actions before they run, and swarm safety triggers.
+            Start a sample run to see how the system records agent activity and flags risky behavior.
           </p>
           <div className="mt-6">
             <button
@@ -168,12 +172,12 @@ export function OverviewPage() {
                 {isCleanRun ? (
                   <span className="flex items-center gap-1.5 text-[#1F7A45]">
                     <ShieldCheck size={16} />
-                    <span>Swarm Operating Safely</span>
+                    <span>No incidents recorded</span>
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 text-rose-700">
                     <ShieldAlert size={16} />
-                    <span>Safety Interventions Active</span>
+                    <span>Incidents found</span>
                   </span>
                 )}
               </div>
@@ -181,18 +185,16 @@ export function OverviewPage() {
               {/* Verdict Banner Sentence */}
               <h2 className="mt-2 text-[26px] sm:text-[32px] font-bold leading-tight tracking-tight text-[var(--text)]">
                 {isCleanRun ? (
-                  "0 incidents · 0 agents stopped · 0 harmful actions executed"
+                  "No incidents were recorded for this run."
                 ) : (
-                  `${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} · ${agentsStoppedCount} agent${
-                    agentsStoppedCount === 1 ? "" : "s"
-                  } stopped · 0 harmful actions executed`
+                  `${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} found · ${flaggedAgentsCount} agent${flaggedAgentsCount === 1 ? "" : "s"} flagged`
                 )}
               </h2>
 
               <p className="mt-2 text-[15px] text-[var(--text-2)] leading-relaxed">
                 {isCleanRun
-                  ? `All participating agents in run ${selectedRunId} operated strictly within approved boundaries.`
-                  : "All malicious actions were intercepted before execution. The swarm was protected from cascading failure."}
+                  ? `No incidents were recorded for run ${selectedRunId}. A clean result does not prove that every action was safe.`
+                  : `Review the evidence and response recorded for run ${selectedRunId}.`}
               </p>
             </div>
 
@@ -212,7 +214,7 @@ export function OverviewPage() {
                   href={`#/incidents/${topAlert.alert_id}`}
                   className="inline-flex h-11 items-center gap-2 rounded-full bg-[var(--card)] border border-[var(--hairline)] hover:border-[var(--text-3)] px-5 text-[14px] font-medium text-[var(--text)] shadow-xs transition-colors"
                 >
-                  <span>View incidents</span>
+                  <span>Open incident</span>
                   <ArrowRight size={15} />
                 </a>
               )}
@@ -231,10 +233,10 @@ export function OverviewPage() {
             tone="ok"
           />
           <Tile
-            label="Agents stopped"
-            value={agentsStoppedCount}
-            subtext="Paused by safety trigger"
-            tone={agentsStoppedCount > 0 ? "crit" : "normal"}
+            label="Agents flagged"
+            value={flaggedAgentsCount}
+            subtext="Named in incident records"
+            tone={flaggedAgentsCount > 0 ? "crit" : "normal"}
           />
           <Tile
             label="Incidents by severity"
@@ -244,7 +246,7 @@ export function OverviewPage() {
                 : highCount > 0
                 ? `${highCount} high`
                 : medCount > 0
-                ? `${medCount} med`
+                ? `${medCount} medium`
                 : "None"
             }
             subtext={
@@ -272,14 +274,14 @@ export function OverviewPage() {
                 Swarm Communication &amp; Safety Topology
               </h3>
               <p className="text-[13px] text-[var(--text-2)]">
-                Stopped agents shown in red with lock indicator. Highlighted paths indicate intercepted communication.
+                Red marks agents named in incident records. Highlighted paths show events linked to alerts.
               </p>
             </div>
             <a
-              href="#/live"
+              href="#/swarm"
               className="text-[13px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
             >
-              <span>Watch agent runtime</span>
+              <span>View swarm activity</span>
               <ArrowRight size={13} />
             </a>
           </div>
@@ -292,32 +294,6 @@ export function OverviewPage() {
               alertEventIds={alertEventIds}
               height={440}
             />
-          </div>
-        </div>
-      )}
-
-      {/* 5. Attack Timeline Strip (Strictly Plain English) */}
-      {!isNoRun && isThreatRun && (
-        <div className="rounded-[var(--r-card)] card p-5 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] block mb-3">
-            Incident Sequence
-          </span>
-          <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-[var(--text)]">
-            <span className="rounded-full bg-rose-500/10 text-rose-700 px-3 py-1 border border-rose-300">
-              Malicious prompt received
-            </span>
-            <span className="text-[var(--text-3)]">&rarr;</span>
-            <span className="rounded-full bg-amber-500/10 text-amber-700 px-3 py-1 border border-amber-300">
-              Safety trigger fired
-            </span>
-            <span className="text-[var(--text-3)]">&rarr;</span>
-            <span className="rounded-full bg-[var(--accent)]/10 text-[var(--accent)] px-3 py-1 border border-[var(--accent)]/30">
-              Data send stopped
-            </span>
-            <span className="text-[var(--text-3)]">&rarr;</span>
-            <span className="rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 border border-neutral-300">
-              Agent paused
-            </span>
           </div>
         </div>
       )}
@@ -341,7 +317,7 @@ export function OverviewPage() {
               href={`#/incidents/${topAlert.alert_id}`}
               className="h-9 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-opacity inline-flex items-center gap-1.5 shrink-0"
             >
-              <span>View incident</span>
+              <span>Review evidence</span>
               <ArrowRight size={13} />
             </a>
           </div>
@@ -351,14 +327,14 @@ export function OverviewPage() {
       {/* 7. Footer Trust Line */}
       <footer className="border-t border-[var(--hairline-subtle)] pt-6 pb-2 text-[13px] text-[var(--text-2)] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Check size={16} className="text-[#1F7A45]" />
-          <span>Passed 7 of 10 industry safety checks &middot; 32,718 real secret data sends caught</span>
+          <Check size={16} aria-hidden="true" />
+          <span>Review results in context. Detection does not prove compromise.</span>
         </div>
         <a
-          href="#/trust"
-          className="font-semibold text-[#1F7A45] hover:underline flex items-center gap-1"
+          href="#/evaluation"
+          className="font-medium text-[var(--link)] hover:underline flex items-center gap-1"
         >
-          <span>Why trust us</span>
+          <span>View evaluation</span>
           <ArrowRight size={13} />
         </a>
       </footer>
