@@ -62,7 +62,7 @@ export function OwaspCoveragePage({ hideHeader = false }: { hideHeader?: boolean
             {data?.summary.strong ?? 7}
           </div>
           <p className="mt-1 text-[13px] text-[var(--text-2)] leading-relaxed">
-            Detected and pre-execution enforced with verified automated tests.
+            Stopped before it ran with verified automated tests.
           </p>
         </div>
 

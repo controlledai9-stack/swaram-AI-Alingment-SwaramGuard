@@ -55,17 +55,14 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
                   key={item.id}
                   href={item.path}
                   aria-current={active ? "page" : undefined}
-                  className={`relative flex items-center gap-1.5 px-3 py-1 rounded-full text-[13px] sm:text-[14px] font-medium transition-all whitespace-nowrap ${
+                  className={`my-auto flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[13px] sm:text-[14px] font-medium transition-all whitespace-nowrap shadow-xs ${
                     active
-                      ? "bg-[#F1FAF4] text-[#1F7A45] border border-[#2E9E5B]/40 shadow-xs ring-1 ring-[#2E9E5B]/20"
+                      ? "bg-[#F1FAF4] text-[#1F7A45] border border-[#2E9E5B]/50 ring-1 ring-[#2E9E5B]/20 font-semibold"
                       : "text-[#1F7A45]/80 hover:text-[#1F7A45] hover:bg-[#F1FAF4] border border-[#2E9E5B]/20"
                   }`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#2E9E5B]" : "bg-[#2E9E5B]/60"}`} />
                   <span>{item.label}</span>
-                  {active && (
-                    <span className="absolute -bottom-[9px] left-3 right-3 h-[2px] rounded-full bg-[#2E9E5B]" />
-                  )}
                 </a>
               );
             }

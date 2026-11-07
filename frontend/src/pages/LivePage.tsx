@@ -453,19 +453,19 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
               </div>
               <div className="divide-y divide-rose-200/70">
                 {containedAgentsList.map((c) => (
-                  <div key={c.agent_id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 text-[13px]">
-                    <div className="flex items-center gap-2">
-                      <span className="text-rose-600">⛔</span>
-                      <span className="font-semibold text-neutral-900">{friendlyAgentName(c.agent_id, c.role)}</span>
-                      <span className="font-mono text-xs text-neutral-500">({shortId(c.agent_id)})</span>
-                      <span className="text-neutral-600">stopped</span>
-                      <span className="text-neutral-400">&middot;</span>
-                      <span className="text-neutral-800 font-medium">{c.reason}</span>
+                  <div key={c.agent_id} className="py-2.5 flex items-center justify-between gap-4 text-[13px]">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                      <span className="text-rose-600 shrink-0">⛔</span>
+                      <span className="font-semibold text-neutral-900 shrink-0 whitespace-nowrap">{friendlyAgentName(c.agent_id, c.role)}</span>
+                      <span className="font-mono text-xs text-neutral-500 shrink-0 whitespace-nowrap">({shortId(c.agent_id)})</span>
+                      <span className="text-neutral-600 shrink-0 whitespace-nowrap">stopped</span>
+                      <span className="text-neutral-400 shrink-0">&middot;</span>
+                      <span className="text-neutral-800 font-medium truncate min-w-0" title={c.reason}>{c.reason}</span>
                     </div>
 
                     <a
                       href="#/incidents"
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-medium shadow-2xs transition-colors"
+                      className="shrink-0 inline-flex items-center gap-1 px-3.5 py-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-medium shadow-2xs transition-colors whitespace-nowrap"
                     >
                       <span>Review &rarr;</span>
                     </a>
