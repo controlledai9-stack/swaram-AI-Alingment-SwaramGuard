@@ -258,6 +258,51 @@ export function SimulatorPage() {
             />
           </Field>
 
+          {(cfg.agent_mode === "autonomous" || cfg.scenario_id === "user_directed") && (
+            <Field label="Task prompt" hint="High-level objective for the autonomous swarm to solve collaboratively">
+              <textarea
+                className={`${inputCls} min-h-[72px] resize-y py-2 text-[13px]`}
+                placeholder="e.g. Collaboratively design and implement a secure data pipeline with automated unit tests..."
+                value={cfg.user_task ?? ""}
+                onChange={(e) => set("user_task", e.target.value)}
+              />
+            </Field>
+          )}
+
+          {(cfg.agent_mode === "autonomous" || cfg.scenario_id === "user_directed") && (
+            <div className="rounded-xl border border-[var(--hairline-subtle)] bg-[var(--card-alt)] p-3 space-y-2">
+              <span className="text-[12px] font-semibold text-[var(--text)] block">
+                Per-Agent Instructions (Optional)
+              </span>
+              <p className="text-[11px] text-[var(--text-3)]">
+                Directives that override the planner's assignments for specific roles.
+              </p>
+              <div className="space-y-1.5 pt-1">
+                {(["planner", "researcher", "analyst", "coder", "reviewer"] as const).map((role) => (
+                  <div key={role} className="flex items-center gap-2">
+                    <span className="w-20 font-mono text-[11px] text-[var(--text-2)] capitalize shrink-0">{role}:</span>
+                    <input
+                      type="text"
+                      className={`${inputCls} py-1 text-[12px]`}
+                      placeholder={`Instruction for ${role}...`}
+                      value={cfg.agent_instructions?.[role] ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCfg((prev) => ({
+                          ...prev,
+                          agent_instructions: {
+                            ...(prev.agent_instructions ?? {}),
+                            [role]: val,
+                          },
+                        }));
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <Field label={`Rounds: ${cfg.rounds ?? 2}`}
             hint="Work rounds; the attack lands after round 1. More rounds let agents act on what they remembered (sleeper injections).">
             <input type="range" min={2} max={8} step={1} value={cfg.rounds ?? 2}

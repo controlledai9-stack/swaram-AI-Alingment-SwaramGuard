@@ -142,6 +142,15 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+  const [userTask, setUserTask] = useState("");
+  const [showRoleInstructions, setShowRoleInstructions] = useState(false);
+  const [agentInstructions, setAgentInstructions] = useState<Record<string, string>>({
+    planner: "",
+    researcher: "",
+    analyst: "",
+    coder: "",
+    reviewer: "",
+  });
   const [userRole, setUserRole] = useState<string>("admin");
 
   useEffect(() => {
@@ -295,17 +304,24 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
     setStatus(null);
     try {
       const targetScenario = chosenScenario || scenario;
+      const cleanInstructions: Record<string, string> = {};
+      for (const [k, v] of Object.entries(agentInstructions)) {
+        if (v && v.trim()) cleanInstructions[k] = v.trim();
+      }
+      const isAi = ai || targetScenario === "user_directed";
       const r = await api.startRun({
         scenario_id: targetScenario,
         agent_count: count,
         seed: Math.floor(Math.random() * 1000),
         gateway_mode: "monitor",
         drop_rate: 0,
-        agent_backend: ai ? "gemini" : "deterministic",
-        agent_mode: ai ? "autonomous" : "scripted",
+        agent_backend: isAi ? "gemini" : "deterministic",
+        agent_mode: isAi ? "autonomous" : "scripted",
         auto_pipeline: true,
         live_guard: "contain",
         persist: true,
+        user_task: userTask.trim() || undefined,
+        agent_instructions: Object.keys(cleanInstructions).length > 0 ? cleanInstructions : undefined,
       });
       setStartedRun(r.run_id);
       setStatus({
@@ -363,10 +379,9 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 <div className="w-[180px] sm:w-[220px]">
                   <CustomSelect
                     value={scenario}
-                    onChange={(val) => setScenario(val)}
+                    onChange={(val) => { setScenario(val); if (val === "user_directed") setAi(true); }}
                     options={
                       meta?.scenarios
-                        .filter((s) => s.scenario_id !== "user_directed")
                         .map((s) => ({
                           value: s.scenario_id,
                           label: s.name,
@@ -425,9 +440,58 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 </button>
               )}
             </div>
-            {ai && (
-              <div className="mt-3 max-w-md pt-2 border-t border-[var(--hairline-subtle)]">
-                <GeminiQuota agentCount={count} agentMode="autonomous" />
+            {(ai || scenario === "user_directed") && (
+              <div className="mt-3 pt-3 border-t border-[var(--hairline-subtle)] space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[13px] font-semibold text-[var(--text)] flex items-center gap-1.5">
+                      <span>Task prompt</span>
+                      <span className="text-[11px] font-normal text-[var(--text-3)]">
+                        (The user-directed objective for the swarm to collaboratively solve)
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowRoleInstructions((s) => !s)}
+                      className="text-[12px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
+                    >
+                      {showRoleInstructions ? "Hide role instructions ▲" : "Per-agent instructions ▼"}
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    className="w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 py-2 text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
+                    placeholder="e.g. Collaboratively design and implement a secure data pipeline with automated unit tests..."
+                    value={userTask}
+                    onChange={(e) => setUserTask(e.target.value)}
+                  />
+                </div>
+
+                {showRoleInstructions && (
+                  <div className="rounded-xl border border-[var(--hairline-subtle)] bg-[var(--card-alt)] p-3 space-y-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] block mb-1">
+                      Optional Per-Role Directives (Overrides planner's instructions for specified roles)
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px]">
+                      {(["planner", "researcher", "analyst", "coder", "reviewer"] as const).map((role) => (
+                        <div key={role} className="flex items-center gap-2">
+                          <span className="w-20 font-mono text-[11px] text-[var(--text-2)] capitalize shrink-0">{role}:</span>
+                          <input
+                            type="text"
+                            className="flex-1 rounded-lg border border-[var(--hairline)] bg-[var(--card)] px-2.5 py-1 text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)]"
+                            placeholder={`Directive for ${role}...`}
+                            value={agentInstructions[role] ?? ""}
+                            onChange={(e) => setAgentInstructions((prev) => ({ ...prev, [role]: e.target.value }))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="max-w-md pt-1">
+                  <GeminiQuota agentCount={count} agentMode="autonomous" />
+                </div>
               </div>
             )}
           </div>
