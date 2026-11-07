@@ -11,8 +11,8 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", path: "#/", label: "Dashboard" },
   { id: "live", path: "#/live", label: "Live Guard" },
   { id: "incidents", path: "#/incidents", label: "Incidents" },
-  { id: "trust", path: "#/trust", label: "Why trust us" },
   { id: "pipeline", path: "#/pipeline/simulator", label: "Pipeline" },
+  { id: "trust", path: "#/trust", label: "Why trust us" },
 ];
 
 export function GlobalNav({ currentRoute }: { currentRoute: string }) {
