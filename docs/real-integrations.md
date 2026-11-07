@@ -52,10 +52,10 @@ No API keys or model calls are required.
 | Test | Result |
 | --- | --- |
 | LangChain: allowed file read and approved-partner upload; API events | PASS |
-| LangChain: attacker-destination upload stopped before tool execution | XFAIL (SG-LC-001) |
+| LangChain: attacker-destination upload stopped before tool execution | XFAIL (SG-LC-001), fixed: now expected to pass |
 | LangChain: operator pause prevents execution and records denial | PASS |
 | LangChain: injected file output recorded as untrusted through API | PASS |
-| LangChain: upload after injected output stopped before execution | XFAIL (SG-LC-001) |
+| LangChain: upload after injected output stopped before execution | XFAIL (SG-LC-001), fixed: now expected to pass |
 | MCP: initialize through gateway | PASS (SSE + JSON) |
 | MCP: tool list hides send_email | PASS (SSE + JSON) |
 | MCP: search returns real server result and records success | PASS (SSE + JSON) |
@@ -72,7 +72,16 @@ network tests (including `test_summary_reads_well` with optional packages instal
 All five tests in that file passed on rerun, and the full baseline rerun passed.
 These existing tests have not been modified or marked xfail.
 
-## Bug report for Aarya: SG-LC-001
+## SG-LC-001 (fixed)
+
+**Status: fixed.** The handler now maps tool arguments the same way the MCP gateway does: a URL or
+`external:` destination makes the call a `data_transfer/upload` to that host, a named resource makes it an access to
+that resource, and only other calls stay `tool_call/run`. It reads LangChain's `inputs` dict, falling back to parsing
+the input string. The xfail markers are removed, and `test_allowed_read_and_upload` now expects the mapped events.
+Regression tests that need no LangChain install: `tests/test_sdk_and_identity.py`. The results table above is from
+before the fix; rerun the integration command to confirm 17 passed.
+
+### Original report
 
 The callback sends every tool start as `tool_call/run`, resource `tool/<name>`,
 and serializes the arguments into `payload.input`. It does not expose an upload's

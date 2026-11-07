@@ -79,14 +79,13 @@ def test_allowed_read_and_upload(agent_env):
     ])["output"] == "Done."
     assert [c[0] for c in calls] == ["read_file", "upload"]
     recorded = events(client, session.run_id)
-    assert [e["resource"] for e in recorded] == ["tool/read_file", "tool/upload"]
+    # SG-LC-001 fix: the handler reports what each call does (a read of the file, an upload to the partner).
+    assert [(e["event_type"], e["resource"], e.get("target")) for e in recorded] == [
+        ("resource_access", "data/public/report.txt", None),
+        ("data_transfer", "data/public/report.txt", "external:approved-partner-api")]
     assert all(e["status"] == "success" for e in recorded)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "SG-LC-001: callback gates tool/upload without mapping its arguments to a "
-    "data_transfer/upload event and external target; the forbidden tool executes"
-))
 def test_out_of_policy_upload_never_executes(agent_env):
     _, _, calls, execute = agent_env
     blocked = False
@@ -115,10 +114,6 @@ def test_injected_output_is_recorded_untrusted(agent_env):
     assert recorded[-1]["payload"]["content"] == INJECTION
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "SG-LC-001: upload arguments never reach the policy/tripwire as resource and "
-    "external target, so an upload after injected tool output still executes"
-))
 def test_injection_followed_by_upload_never_executes(agent_env):
     session, client, calls, execute = agent_env
     blocked = False
