@@ -44,9 +44,32 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
         </div>
 
         {/* Center Nav Links - Truly Centralized */}
-        <nav className="flex items-center justify-center gap-5 sm:gap-8 overflow-x-auto no-scrollbar px-2" aria-label="Main Navigation">
+        <nav className="flex items-center justify-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar px-2" aria-label="Main Navigation">
           {NAV_ITEMS.map((item) => {
             const active = isCurrent(item.id);
+            const isTrust = item.id === "trust";
+
+            if (isTrust) {
+              return (
+                <a
+                  key={item.id}
+                  href={item.path}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative flex items-center gap-1.5 px-3 py-1 rounded-full text-[13px] sm:text-[14px] font-medium transition-all whitespace-nowrap ${
+                    active
+                      ? "bg-[#F1FAF4] text-[#1F7A45] border border-[#2E9E5B]/40 shadow-xs ring-1 ring-[#2E9E5B]/20"
+                      : "text-[#1F7A45]/80 hover:text-[#1F7A45] hover:bg-[#F1FAF4] border border-[#2E9E5B]/20"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#2E9E5B]" : "bg-[#2E9E5B]/60"}`} />
+                  <span>{item.label}</span>
+                  {active && (
+                    <span className="absolute -bottom-[9px] left-3 right-3 h-[2px] rounded-full bg-[#2E9E5B]" />
+                  )}
+                </a>
+              );
+            }
+
             return (
               <a
                 key={item.id}
