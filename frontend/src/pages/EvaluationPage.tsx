@@ -186,7 +186,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text)]">
               {ev?.containment_rate != null ? pct(ev.containment_rate) : "100%"}
             </div>
-            <div className="mt-1 text-[14px] text-[var(--text-3)]">Block / pause policy recommendations</div>
+            <div className="mt-1 text-[14px] text-[var(--text-3)]">Policy recommendations to stop or pause</div>
           </div>
 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
@@ -230,11 +230,11 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
               Missing-log resilience curve§
             </h2>
             <p className="text-[14px] text-[var(--text-2)]">
-              Percentage of attacks caught as adversary deletes or drops event logs (0% to 50% loss).
+              Percentage of attacks caught as malicious actions delete or drop event logs (0% to 50% loss).
             </p>
           </div>
           <span className="rounded-full card px-3 py-1 font-mono text-[12px] text-[var(--text-2)]">
-            Rule SG-010 active
+            Active blind-spot correlation
           </span>
         </div>
 
@@ -393,7 +393,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
               <span className="flex items-center gap-2">
                 <span className="h-1 w-5 rounded-full bg-[var(--accent)]" />
                 <span className="font-semibold text-[var(--text)]">
-                  SwaramGuard (Multi-agent + Rule SG-010 blind-spot inference)
+                  SwaramGuard (Multi-agent correlation + blind-spot detection)
                 </span>
               </span>
               <span className="flex items-center gap-2 text-[var(--text-2)]">

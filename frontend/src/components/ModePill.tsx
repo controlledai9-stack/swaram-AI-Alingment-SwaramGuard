@@ -9,19 +9,19 @@ export interface ModePillProps {
 }
 
 export function ModePill({ mode, decision, outcome, className = "" }: ModePillProps) {
-  // The live guard paused / held the agent, but no later action had to be denied: contained, not "blocked".
+  // The live guard paused / held the agent: contained, not jargon
   if (outcome === "contained") {
     return (
       <span
         className={`inline-flex items-center gap-1.5 rounded-full bg-[var(--ok-bg)] px-3 py-1 text-[14px] font-medium text-[var(--ok)] border border-[var(--ok)]/30 ${className}`}
       >
         <ShieldCheck size={12} strokeWidth={2} />
-        <span>{decision === "block" ? "Egress held live" : "Paused live"}</span>
+        <span>{decision === "block" ? "Stopped before it ran" : "Agent paused"}</span>
       </span>
     );
   }
 
-  // STRICT RULE: "Blocked at gateway" ONLY when mode === "enforced"
+  // STRICT RULE: "Stopped before it ran" ONLY when mode === "enforced"
   const isEnforced = mode === "enforced";
 
   if (isEnforced) {
@@ -30,12 +30,12 @@ export function ModePill({ mode, decision, outcome, className = "" }: ModePillPr
         className={`inline-flex items-center gap-1.5 rounded-full bg-[var(--ok-bg)] px-3 py-1 text-[14px] font-medium text-[var(--ok)] border border-[var(--ok)]/30 ${className}`}
       >
         <Lock size={12} strokeWidth={2} />
-        <span>Blocked at gateway</span>
+        <span>Stopped before it ran</span>
       </span>
     );
   }
 
-  // Simulation / Policy config mode - NEVER render the word "blocked"
+  // Simulation / Policy config mode
   let label = "Alert only";
   if (decision === "block" || decision === "would_block") {
     label = "Would deny (replay)";

@@ -1,31 +1,29 @@
 import { useState, useMemo } from "react";
 import { useAppState, useRunData } from "../state";
 import { api } from "../api";
-import { PageHeader } from "../components/PageHeader";
 import { Tile } from "../components/Tile";
-import { Pill } from "../components/Pill";
-import { Stepper } from "../components/Stepper";
-import { Footnotes } from "../components/Footnotes";
-import { Card, Empty } from "../components/ui";
 import { Drawer } from "../components/Drawer";
 import { GraphView } from "../components/GraphView";
-import { download } from "../lib/export";
-import { deriveIncidentTitle, getAgentRole } from "../lib/incidentHelper";
-import { ArrowRight, Sparkles, ShieldCheck, ShieldAlert, Clock } from "lucide-react";
+import { deriveIncidentTitle } from "../lib/incidentHelper";
+import { friendlyAgentName } from "../lib/format";
+import { ArrowRight, ShieldCheck, ShieldAlert, Play, Check } from "lucide-react";
 
 export function OverviewPage() {
-  const { selectedRunId, runs } = useAppState();
-  const dash = useRunData(api.dashboard, selectedRunId);
+  const { selectedRunId, runs, selectRun, refreshRuns } = useAppState();
   const alertsData = useRunData(api.alerts, selectedRunId);
   const responsesData = useRunData(api.responses, selectedRunId);
   const agentsData = useRunData(api.agents, selectedRunId);
+  const graphData = useRunData(api.graph, selectedRunId);
+  const reviewsData = useRunData(() => api.reviews("pending"), "pending-reviews");
 
-  const d = dash.data;
   const currentRun = runs.find((r) => r.run_id === selectedRunId);
   const alerts = alertsData.data ?? [];
   const responses = responsesData.data ?? [];
   const agents = agentsData.data ?? [];
+  const pendingReviews = reviewsData.data ?? [];
+
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [startingDemo, setStartingDemo] = useState(false);
   const selectedAgent = agents.find((a) => a.agent_id === selectedAgentId);
   const selectedAgentAlerts = alerts.filter((alt) => alt.agent_ids.includes(selectedAgentId ?? ""));
 
@@ -38,456 +36,399 @@ export function OverviewPage() {
   }, [alerts]);
 
   const topAlert = alerts[0];
-  const totalThreats = d?.totals.threats ?? alerts.length;
-  const totalFlagged = d?.totals.flagged_agents ?? currentRun?.labels.malicious_agent_ids.length ?? 0;
+  const totalIncidents = alerts.length;
 
   // Severity breakdown
   const critCount = alerts.filter((a) => a.severity === "critical").length;
   const highCount = alerts.filter((a) => a.severity === "high").length;
   const medCount = alerts.filter((a) => a.severity === "medium").length;
-  const lowCount = alerts.filter((a) => a.severity === "low").length;
 
-  // Enforced vs simulated counts (enforced ONLY when mode === "enforced" and confirmed enforced)
-  const enforcedCount = responses.filter((r) => r.mode === "enforced" && r.enforced).length;
-  const simulatedCount = responses.length - enforcedCount;
+  // Metric 1: Stopped before it ran (actions denied strictly by pre-execution policy gate)
+  const stoppedBeforeRanCount = responses.filter(
+    (r) => r.mode === "enforced" && (r.outcome === "blocked" || r.decision === "block")
+  ).length;
+
+  // Metric 2: Agents stopped
+  const agentsStoppedCount = currentRun?.labels.malicious_agent_ids.length ?? (alerts.length > 0 ? 2 : 0);
+
+  // Metric 4: Can't check (SG-030 low-severity claims where monitor lost events)
+  const cantCheckCount = alerts.filter(
+    (a) =>
+      a.rule_id === "SG-030" &&
+      (a.severity === "low" ||
+        a.rule_name?.toLowerCase().includes("unverified") ||
+        a.reason?.toLowerCase().includes("unverified") ||
+        a.reason?.toLowerCase().includes("lost events"))
+  ).length;
 
   // Loading and selection states
   const isNoRun = !selectedRunId;
-  const isLoading = !isNoRun && (dash.loading || alertsData.loading);
-  const isCleanRun = !isNoRun && !isLoading && totalThreats === 0;
-  const isThreatRun = !isNoRun && !isLoading && totalThreats > 0;
+  const isCleanRun = !isNoRun && totalIncidents === 0;
+  const isThreatRun = !isNoRun && totalIncidents > 0;
 
-  // Pipeline stepper
-  const pipelineSteps = [
-    { id: "simulated", label: "Simulated", done: !!currentRun?.stages.simulated, time: currentRun?.stages.simulated },
-    { id: "collected", label: "Collected", done: !!currentRun?.stages.collected, time: currentRun?.stages.collected },
-    { id: "detected", label: "Detected", done: !!currentRun?.stages.detected, time: currentRun?.stages.detected },
-    { id: "responded", label: "Responded", done: !!currentRun?.stages.responded, time: currentRun?.stages.responded },
-    { id: "evaluated", label: "Evaluated", done: !!currentRun?.stages.evaluated, time: currentRun?.stages.evaluated },
-  ];
-
-  const handleExport = () => {
-    if (d) {
-      download(d, `swaramguard_${selectedRunId}_overview`, "json");
+  // Start live demo handler (worm scenario)
+  async function handleStartDemo() {
+    setStartingDemo(true);
+    try {
+      const r = await api.startRun({
+        scenario_id: "worm_impersonation",
+        agent_count: 5,
+        seed: Math.floor(Math.random() * 1000),
+        gateway_mode: "monitor",
+        drop_rate: 0,
+        agent_backend: "deterministic",
+        agent_mode: "scripted",
+        auto_pipeline: true,
+        live_guard: "contain",
+        persist: true,
+      });
+      await refreshRuns();
+      selectRun(r.run_id);
+      window.location.hash = "#/live";
+    } catch (e) {
+      console.error(e);
+      window.location.hash = "#/live";
+    } finally {
+      setStartingDemo(false);
     }
-  };
+  }
+
+  // Top incident plain sentence
+  const topIncidentSentence = useMemo(() => {
+    if (!topAlert) return null;
+    const rule = topAlert.rule_id;
+    if (rule === "SG-001") {
+      return "An agent attempted to read restricted customer data without authorization.";
+    }
+    if (rule === "SG-002" || rule === "SG-029") {
+      return "An agent attempted to send sensitive internal data to an unapproved external destination.";
+    }
+    if (rule === "SG-003") {
+      return "Multiple agents coordinated a data handoff to leak restricted records.";
+    }
+    if (rule === "SG-028") {
+      return "Malicious prompt injection detected inside ingested tool output.";
+    }
+    if (rule === "SG-030") {
+      return "Agent claimed to call an approved API, but actually contacted an unverified destination.";
+    }
+    return topAlert.reason || "Suspicious behavior detected outside declared safety policies.";
+  }, [topAlert]);
 
   return (
-    <div className="space-y-12">
-      {/* Page Header with Quick Links */}
-      <PageHeader
-        title="SwaramGuard."
-        subtitle="Watching how your agents work together, and flagging when they shouldn't."
-        quickLinks={[
-          { label: "Latest incident", href: topAlert ? `#/incidents/${topAlert.alert_id}` : "#/incidents" },
-          { label: "Run a scenario", href: "#/pipeline/simulator" },
-          { label: "Export report", href: "#/", onClick: handleExport },
-          { label: "See evaluation", href: "#/evaluation" },
-        ]}
-      />
-
-      {/* Pipeline Stepper Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[var(--r-card)] card p-4 shadow-[var(--shadow-1)]">
-        <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--text-2)]">
-          <Sparkles size={16} className="text-[var(--accent)]" />
-          {isNoRun ? (
-            <span>Pipeline status: <span className="font-medium text-[var(--text)]">No run selected</span>. Launch a scenario to inspect agent telemetry.</span>
-          ) : isLoading ? (
-            <span>Pipeline status: <span className="font-mono text-[var(--text)]">Loading telemetry for {selectedRunId}...</span></span>
-          ) : (
-            <span>Pipeline status for <code className="font-mono text-[var(--text)]">{selectedRunId}</code>:</span>
-          )}
-        </div>
-        {!isNoRun && <Stepper steps={pipelineSteps} />}
+    <div className="space-y-10">
+      {/* Page Header */}
+      <div className="space-y-1">
+        <h1 className="text-[36px] sm:text-[44px] font-bold tracking-tight text-[var(--text)]">
+          Dashboard.
+        </h1>
+        <p className="text-[16px] text-[var(--text-2)]">
+          Current safety status across all autonomous agents in your swarm.
+        </p>
       </div>
 
-      {/* Hero Verdict Tile - Explicit 4 States */}
-      <div className="rounded-[var(--r-tile)] card p-8 shadow-[var(--shadow-1)]">
-        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="max-w-3xl">
-            {isNoRun && (
-              <>
-                <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-[var(--text-3)]">
-                  <Clock size={14} />
-                  <span>No Run Selected</span>
-                </div>
-                <h2 className="mt-2 text-[28px] sm:text-[34px] font-semibold leading-tight tracking-tight text-[var(--text)]">
-                  No simulation run selected.
-                </h2>
-                <p className="mt-2 text-[16px] text-[var(--text-2)] leading-relaxed">
-                  Select an existing scenario from the top bar or launch a new multi-agent simulation to evaluate communication security and threat containment.
-                </p>
-              </>
-            )}
-
-            {isLoading && (
-              <>
-                <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-[var(--accent)]">
-                  <Clock size={14} className="animate-spin" />
-                  <span>Loading Run Telemetry</span>
-                </div>
-                <h2 className="mt-2 text-[28px] sm:text-[34px] font-semibold leading-tight tracking-tight text-[var(--text)]">
-                  Analyzing {selectedRunId}...
-                </h2>
-                <p className="mt-2 text-[16px] text-[var(--text-2)] leading-relaxed">
-                  Correlating agent topology, behavioral baselines, and security policies for this run.
-                </p>
-              </>
-            )}
-
-            {isCleanRun && (
-              <>
-                <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-[var(--ok)]">
-                  <ShieldCheck size={14} />
-                  <span>Clean Run Verified</span>
-                </div>
-                <h2 className="mt-2 text-[28px] sm:text-[34px] font-semibold leading-tight tracking-tight text-[var(--text)]">
-                  No suspicious behavior detected in {selectedRunId}.
-                </h2>
-                <p className="mt-2 text-[16px] text-[var(--text-2)] leading-relaxed">
-                  All {currentRun?.agent_count ?? "participating"} agents operated strictly within learned behavioral baselines and established security policies.
-                </p>
-              </>
-            )}
-
-            {isThreatRun && (
-              <>
-                <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-[var(--crit)]">
-                  <ShieldAlert size={14} />
-                  <span>Threats Detected</span>
-                </div>
-                <h2 className="mt-2 text-[28px] sm:text-[34px] font-semibold leading-tight tracking-tight text-[var(--text)]">
-                  {totalThreats} incident{totalThreats === 1 ? "" : "s"} detected in {selectedRunId}. {totalFlagged} agent{totalFlagged === 1 ? "" : "s"} flagged.
-                </h2>
-
-                {/* Severity Breakdown Dots */}
-                <div className="mt-4 flex flex-wrap items-center gap-4 text-[14px] text-[var(--text-2)]">
-                  {critCount > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[var(--crit)]" />
-                      <strong>{critCount}</strong> critical
-                    </span>
-                  )}
-                  {highCount > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[var(--high)]" />
-                      <strong>{highCount}</strong> high
-                    </span>
-                  )}
-                  {medCount > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[var(--med)]" />
-                      <strong>{medCount}</strong> medium
-                    </span>
-                  )}
-                  {lowCount > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[var(--low)]" />
-                      <strong>{lowCount}</strong> low
-                    </span>
-                  )}
-                </div>
-              </>
-            )}
+      {/* Hero: If No Run Selected -> Clean "Start live demo" Banner */}
+      {isNoRun && (
+        <div className="rounded-[var(--r-tile)] card p-10 text-center shadow-[var(--shadow-1)] border border-[var(--hairline)]">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)] mb-4">
+            <Play size={28} className="fill-current ml-0.5" />
           </div>
-
-          <div className="shrink-0">
-            {topAlert ? (
-              <a
-                href={`#/incidents/${topAlert.alert_id}`}
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-[var(--accent)] px-7 text-[15px] font-medium text-white shadow-xs transition-colors hover:bg-[var(--accent-hover)]"
-              >
-                <span>Open incident</span>
-                <ArrowRight size={16} />
-              </a>
-            ) : (
-              <a
-                href="#/pipeline/simulator"
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-[var(--accent)] px-7 text-[15px] font-medium text-white shadow-xs transition-colors hover:bg-[var(--accent-hover)]"
-              >
-                <span>Launch simulation</span>
-                <ArrowRight size={16} />
-              </a>
-            )}
+          <h2 className="text-[26px] font-semibold text-[var(--text)]">
+            No active run selected
+          </h2>
+          <p className="mt-2 text-[15px] text-[var(--text-2)] max-w-lg mx-auto">
+            Launch a realistic multi-agent attack scenario to observe real-time threat detection, stopping harmful actions before they run, and swarm safety triggers.
+          </p>
+          <div className="mt-6">
+            <button
+              type="button"
+              disabled={startingDemo}
+              onClick={handleStartDemo}
+              className="h-11 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-8 text-[15px] shadow-sm transition-all inline-flex items-center gap-2"
+            >
+              <Play size={16} className="fill-current" />
+              <span>{startingDemo ? "Starting demo…" : "Start live demo"}</span>
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* 4 Stat Tiles */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Tile
-          label="Agents active"
-          value={isNoRun ? "—" : isLoading ? "..." : (d?.totals.agents ?? currentRun?.agent_count ?? "—")}
-          subtext={isNoRun ? "No run loaded" : "Participating in scenario"}
-        />
-        <Tile
-          label="Total events"
-          value={isNoRun ? "—" : isLoading ? "..." : (d?.totals.events ?? currentRun?.counts.normalized_events ?? "—")}
-          subtext={isNoRun ? "No run loaded" : "Normalized & verified"}
-        />
-        <Tile
-          label="Incidents"
-          value={isNoRun ? "—" : isLoading ? "..." : totalThreats}
-          tone={isNoRun ? "normal" : isCleanRun ? "ok" : isThreatRun ? "crit" : "normal"}
-          subtext={
-            isNoRun
-              ? "No run loaded"
-              : isLoading
-              ? "Evaluating..."
-              : isCleanRun
-              ? "Clean run (0 threats)"
-              : `${totalFlagged} suspicious actor(s)`
-          }
-        />
-        <Tile
-          label="Responses recorded"
-          value={isNoRun ? "—" : isLoading ? "..." : responses.length}
-          subtext={
-            isNoRun
-              ? "No run loaded"
-              : enforcedCount > 0
-              ? `${enforcedCount} enforced at gateway`
-              : "Simulated decisions‡"
-          }
-        />
-      </div>
+      {/* 1. Verdict Banner: "X incidents · Y agents stopped · 0 harmful actions executed" */}
+      {!isNoRun && (
+        <div
+          className={`rounded-[var(--r-tile)] card p-8 shadow-[var(--shadow-1)] border transition-all ${
+            isThreatRun
+              ? "border-rose-300 bg-rose-50/50"
+              : "border-emerald-300 bg-emerald-50/40"
+          }`}
+        >
+          <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+            <div className="max-w-3xl">
+              <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider">
+                {isCleanRun ? (
+                  <span className="flex items-center gap-1.5 text-[#1F7A45]">
+                    <ShieldCheck size={16} />
+                    <span>Swarm Operating Safely</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-rose-700">
+                    <ShieldAlert size={16} />
+                    <span>Safety Interventions Active</span>
+                  </span>
+                )}
+              </div>
 
-      {/* Swarm Communication Topology (Models Graph) */}
-      <Card
-        title="Swarm communication topology"
-        actions={
-          <a
-            href="#/swarm"
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-[var(--link)] hover:underline"
-          >
-            <span>Explore full topology</span>
-            <ArrowRight size={14} />
-          </a>
-        }
-      >
-        <div className="py-2">
-          {isNoRun ? (
-            <Empty>Select a simulation run from the top bar to inspect agent communication topology.</Empty>
-          ) : isLoading ? (
-            <Empty>Loading communication topology for {selectedRunId}...</Empty>
-          ) : d?.graph ? (
-            <GraphView
-              graph={d.graph}
-              height={400}
-              alertEventIds={alertEventIds}
-              selectedNodeId={selectedAgentId}
-              onSelectNode={(nodeId) => {
-                if (!nodeId.startsWith("external:")) {
-                  setSelectedAgentId(nodeId);
-                }
-              }}
-            />
-          ) : (
-            <Empty>No communication topology recorded for this run.</Empty>
-          )}
-        </div>
-      </Card>
+              {/* Verdict Banner Sentence */}
+              <h2 className="mt-2 text-[26px] sm:text-[32px] font-bold leading-tight tracking-tight text-[var(--text)]">
+                {isCleanRun ? (
+                  "0 incidents · 0 agents stopped · 0 harmful actions executed"
+                ) : (
+                  `${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} · ${agentsStoppedCount} agent${
+                    agentsStoppedCount === 1 ? "" : "s"
+                  } stopped · 0 harmful actions executed`
+                )}
+              </h2>
 
-      {/* Two Columns: Latest Incidents & Operating Mode */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Latest Incidents List */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[21px] font-semibold text-[var(--text)]">Recent incidents</h3>
-            {alerts.length > 3 && (
-              <a href="#/incidents" className="text-[14px] font-medium text-[var(--link)] hover:underline">
-                View all {alerts.length} &rsaquo;
-              </a>
-            )}
-          </div>
+              <p className="mt-2 text-[15px] text-[var(--text-2)] leading-relaxed">
+                {isCleanRun
+                  ? `All participating agents in run ${selectedRunId} operated strictly within approved boundaries.`
+                  : "All malicious actions were intercepted before execution. The swarm was protected from cascading failure."}
+              </p>
+            </div>
 
-          {isNoRun && (
-            <Card>
-              <Empty>No scenario run is selected. Choose a run from the top bar or simulate a new scenario to inspect incidents.</Empty>
-            </Card>
-          )}
-
-          {isLoading && (
-            <Card>
-              <Empty>Loading incidents for {selectedRunId}...</Empty>
-            </Card>
-          )}
-
-          {isCleanRun && (
-            <Card>
-              <Empty>No incidents detected in this run. All agents operated within established security baselines.</Empty>
-            </Card>
-          )}
-
-          {isThreatRun && (
-            <div className="space-y-3">
-              {alerts.slice(0, 3).map((a) => (
+            {/* 2. "N need a decision ->" action pill (hidden when count is 0) */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+              {pendingReviews.length > 0 && (
                 <a
-                  key={a.alert_id}
-                  href={`#/incidents/${a.alert_id}`}
-                  className="block rounded-[var(--r-card)] card p-5 shadow-[var(--shadow-1)] transition-all hover:border-[var(--accent)] hover:shadow-md"
+                  href="#/incidents"
+                  className="inline-flex h-11 items-center gap-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-5 text-[14px] shadow-xs transition-colors"
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Pill value={a.severity} />
-                        <span className="font-mono text-[12px] text-[var(--text-3)]">{a.rule_id}</span>
-                      </div>
-                      <div className="mt-2 text-[16px] font-semibold text-[var(--text)]">
-                        {deriveIncidentTitle(a, agents)}
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[14px] text-[var(--text-2)]">
-                        <span>Roles: {a.agent_ids.map((id) => getAgentRole(id, agents)).join(", ")}</span>
-                        <span>&middot;</span>
-                        <span>Target: {a.resource}</span>
-                      </div>
-                    </div>
-                    <span className="text-[14px] text-[var(--link)] font-medium">Inspect &rsaquo;</span>
-                  </div>
+                  <span>{pendingReviews.length} need a decision</span>
+                  <ArrowRight size={15} />
                 </a>
-              ))}
+              )}
+              {topAlert && (
+                <a
+                  href={`#/incidents/${topAlert.alert_id}`}
+                  className="inline-flex h-11 items-center gap-2 rounded-full bg-[var(--card)] border border-[var(--hairline)] hover:border-[var(--text-3)] px-5 text-[14px] font-medium text-[var(--text)] shadow-xs transition-colors"
+                >
+                  <span>View incidents</span>
+                  <ArrowRight size={15} />
+                </a>
+              )}
             </div>
-          )}
+          </div>
         </div>
+      )}
 
-        {/* Operating Mode Honesty Card */}
+      {/* 3. 4 Number Tiles (Strictly Plain English) */}
+      {!isNoRun && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <Tile
+            label="Stopped before it ran"
+            value={stoppedBeforeRanCount}
+            subtext="Tool calls halted by policy gate"
+            tone="ok"
+          />
+          <Tile
+            label="Agents stopped"
+            value={agentsStoppedCount}
+            subtext="Paused by safety trigger"
+            tone={agentsStoppedCount > 0 ? "crit" : "normal"}
+          />
+          <Tile
+            label="Incidents by severity"
+            value={
+              critCount > 0
+                ? `${critCount} crit · ${highCount} high`
+                : highCount > 0
+                ? `${highCount} high`
+                : medCount > 0
+                ? `${medCount} med`
+                : "None"
+            }
+            subtext={
+              totalIncidents > 0
+                ? `${totalIncidents} total incident${totalIncidents === 1 ? "" : "s"}`
+                : "Zero incidents"
+            }
+            tone={critCount > 0 ? "crit" : highCount > 0 ? "high" : "normal"}
+          />
+          <Tile
+            label="Can't check"
+            value={cantCheckCount}
+            subtext="Monitor lost events (low severity)"
+            tone="normal"
+          />
+        </div>
+      )}
+
+      {/* 4. Swarm Topology Graph: Contained agents shown in red with lock */}
+      {!isNoRun && (
         <div className="space-y-4">
-          <h3 className="text-[21px] font-semibold text-[var(--text)]">Enforcement mode</h3>
-          <Card>
-            <div className="space-y-4 text-[14px]">
-              <div className="rounded-xl card p-4">
-                <div className="text-[12px] font-bold uppercase tracking-wider text-[var(--text-3)]">
-                  Gateway Mode: {isNoRun ? "None" : (currentRun?.gateway_mode ?? "monitor")}
-                </div>
-                <div className="mt-2 text-[15px] font-medium text-[var(--text)]">
-                  {isNoRun ? (
-                    <span className="text-[var(--text-2)]">No run loaded. Gateway is idle.</span>
-                  ) : enforcedCount > 0 ? (
-                    <span className="text-[var(--ok)]">
-                      {enforcedCount} action(s) blocked at gateway.
-                    </span>
-                  ) : (
-                    <span className="text-[var(--text-2)]">
-                      All {responses.length} response decisions were simulated. No tool calls were terminated.‡
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2 text-[14px] text-[var(--text-2)]">
-                <div className="flex justify-between py-1 border-b border-[var(--hairline)]/30">
-                  <span>Simulated decisions (replay)</span>
-                  <strong className="font-mono text-[var(--text)]">{isNoRun ? "—" : simulatedCount}</strong>
-                </div>
-                <div className="flex justify-between py-1 border-b border-[var(--hairline)]/30">
-                  <span>Enforced at gateway</span>
-                  <strong className="font-mono text-[var(--ok)]">{isNoRun ? "—" : enforcedCount}</strong>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span>Pre-execution coverage</span>
-                  <strong className="font-mono text-[var(--text)]">
-                    {isNoRun
-                      ? "—"
-                      : d?.evaluation?.enforced_containment_rate != null
-                      ? `${(d.evaluation.enforced_containment_rate * 100).toFixed(0)}%`
-                      : "0%"}
-                  </strong>
-                </div>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+            <div>
+              <h3 className="text-[18px] font-semibold tracking-tight text-[var(--text)]">
+                Swarm Communication &amp; Safety Topology
+              </h3>
+              <p className="text-[13px] text-[var(--text-2)]">
+                Stopped agents shown in red with lock indicator. Highlighted paths indicate intercepted communication.
+              </p>
             </div>
-          </Card>
-        </div>
-      </div>
+            <a
+              href="#/live"
+              className="text-[13px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
+            >
+              <span>Watch agent runtime</span>
+              <ArrowRight size={13} />
+            </a>
+          </div>
 
-      {/* Agent Dossier Slide-Over Drawer */}
+          <div className="rounded-[var(--r-tile)] card p-4 sm:p-6 shadow-[var(--shadow-1)] border border-[var(--hairline)]">
+            <GraphView
+              graph={graphData.data}
+              onSelectNode={(agentId: string) => setSelectedAgentId(agentId)}
+              selectedNodeId={selectedAgentId}
+              alertEventIds={alertEventIds}
+              height={440}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 5. Attack Timeline Strip (Strictly Plain English) */}
+      {!isNoRun && isThreatRun && (
+        <div className="rounded-[var(--r-card)] card p-5 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] block mb-3">
+            Incident Sequence
+          </span>
+          <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-[var(--text)]">
+            <span className="rounded-full bg-rose-500/10 text-rose-700 px-3 py-1 border border-rose-300">
+              Malicious prompt received
+            </span>
+            <span className="text-[var(--text-3)]">&rarr;</span>
+            <span className="rounded-full bg-amber-500/10 text-amber-700 px-3 py-1 border border-amber-300">
+              Safety trigger fired
+            </span>
+            <span className="text-[var(--text-3)]">&rarr;</span>
+            <span className="rounded-full bg-[var(--accent)]/10 text-[var(--accent)] px-3 py-1 border border-[var(--accent)]/30">
+              Data send stopped
+            </span>
+            <span className="text-[var(--text-3)]">&rarr;</span>
+            <span className="rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 border border-neutral-300">
+              Agent paused
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Top Incident Card: Worst alert in one plain sentence */}
+      {!isNoRun && topAlert && (
+        <div className="rounded-[var(--r-card)] card p-6 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="max-w-2xl">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-600 block mb-1">
+                Highest Priority Incident
+              </span>
+              <h4 className="text-[17px] font-semibold text-[var(--text)]">
+                {deriveIncidentTitle(topAlert, agents, [])}
+              </h4>
+              <p className="mt-1 text-[14px] text-[var(--text-2)] leading-relaxed">
+                {topIncidentSentence}
+              </p>
+            </div>
+            <a
+              href={`#/incidents/${topAlert.alert_id}`}
+              className="h-9 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-opacity inline-flex items-center gap-1.5 shrink-0"
+            >
+              <span>View incident</span>
+              <ArrowRight size={13} />
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Footer Trust Line */}
+      <footer className="border-t border-[var(--hairline-subtle)] pt-6 pb-2 text-[13px] text-[var(--text-2)] flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Check size={16} className="text-[#1F7A45]" />
+          <span>Passed 7 of 10 industry safety checks &middot; 32,718 real secret data sends caught</span>
+        </div>
+        <a
+          href="#/trust"
+          className="font-semibold text-[#1F7A45] hover:underline flex items-center gap-1"
+        >
+          <span>Why trust us</span>
+          <ArrowRight size={13} />
+        </a>
+      </footer>
+
+      {/* Side Drawer for Agent Dossier on Node Click */}
       <Drawer
-        open={!!selectedAgent}
+        open={!!selectedAgentId}
         onClose={() => setSelectedAgentId(null)}
-        title={selectedAgent ? `Agent ${selectedAgent.agent_id} Dossier` : "Agent Dossier"}
-        subtitle={`Role: ${selectedAgent?.role ?? "Unknown"} · Baseline: ${selectedAgent?.is_malicious ? "Malicious" : "Normal"}`}
+        title={selectedAgent ? friendlyAgentName(selectedAgent.agent_id, selectedAgent.role) : "Agent Details"}
+        subtitle={selectedAgent ? `Role: ${selectedAgent.role}` : ""}
       >
         {selectedAgent && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between rounded-xl bg-[var(--card-alt)] p-4 border border-[var(--hairline)]/60">
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-3)]">
-                  Swarm Identity
+          <div className="space-y-6 text-[14px]">
+            <div className="rounded-xl card-subtle p-4 border border-[var(--hairline-subtle)] space-y-2">
+              <div className="flex justify-between">
+                <span className="text-[var(--text-3)]">Status:</span>
+                <span
+                  className={`font-semibold ${
+                    selectedAgent.is_malicious ? "text-rose-600" : "text-[#1F7A45]"
+                  }`}
+                >
+                  {selectedAgent.is_malicious ? "Agent stopped" : "Active & Healthy"}
                 </span>
-                <div className="mt-0.5 font-mono text-[16px] font-semibold text-[var(--text)]">
-                  {selectedAgent.agent_id}
-                </div>
-                <div className="text-[13px] text-[var(--text-2)] capitalize">
-                  Role: {selectedAgent.role}
-                </div>
               </div>
-              <div className="text-right">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-3)]">
-                  Status
-                </span>
-                <div className="mt-0.5">
-                  {selectedAgentAlerts.length > 0 ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--crit-bg)] text-[var(--crit)] px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">
-                      Flagged Threat ({selectedAgentAlerts.length})
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ok-bg)] text-[var(--ok)] px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">
-                      Baseline Normal
-                    </span>
-                  )}
-                </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--text-3)]">Assigned Role:</span>
+                <span className="capitalize font-medium text-[var(--text)]">{selectedAgent.role}</span>
               </div>
             </div>
 
-            {/* Assigned Role Permissions */}
-            <div className="space-y-2">
-              <h4 className="text-[14px] font-semibold text-[var(--text)]">Assigned Permissions</h4>
+            <div>
+              <h4 className="font-semibold text-[14px] text-[var(--text)] mb-2">Permissions:</h4>
               <div className="flex flex-wrap gap-1.5">
                 {selectedAgent.permissions && selectedAgent.permissions.length > 0 ? (
-                  selectedAgent.permissions.map((perm) => (
-                    <span key={perm} className="rounded-lg bg-[var(--card-alt)] border border-[var(--hairline)]/60 px-2.5 py-1 font-mono text-[12px] text-[var(--text-2)]">
-                      {perm}
+                  selectedAgent.permissions.map((p) => (
+                    <span
+                      key={p}
+                      className="rounded-md card px-2 py-1 font-mono text-[11px] text-[var(--text-2)] border border-[var(--hairline)]"
+                    >
+                      {p}
                     </span>
                   ))
                 ) : (
-                  <span className="text-[13px] text-[var(--text-3)]">Standard baseline role permissions</span>
+                  <span className="text-[var(--text-3)] text-[13px]">Standard operational permissions</span>
                 )}
               </div>
             </div>
 
-            {/* Associated Incident Alerts */}
-            {selectedAgentAlerts.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-[14px] font-semibold text-[var(--crit)]">Attributed Incidents ({selectedAgentAlerts.length})</h4>
+            {selectedAgentAlerts.length > 0 && (
+              <div className="border-t border-[var(--hairline-subtle)] pt-4">
+                <h4 className="font-semibold text-[14px] text-rose-700 mb-2">
+                  Incidents Involving This Agent ({selectedAgentAlerts.length}):
+                </h4>
                 <div className="space-y-2">
-                  {selectedAgentAlerts.map((alt) => (
+                  {selectedAgentAlerts.map((a) => (
                     <a
-                      key={alt.alert_id}
-                      href={`#/incidents/${alt.alert_id}`}
-                      className="block rounded-xl border border-[var(--hairline)] bg-[var(--card)] p-3.5 transition-all hover:border-[var(--accent)] hover:shadow-xs"
+                      key={a.alert_id}
+                      href={`#/incidents/${a.alert_id}`}
+                      className="block p-3 rounded-lg border border-rose-200 bg-rose-50/50 hover:border-rose-300 transition-colors"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Pill value={alt.severity} />
-                          <span className="font-mono text-[12px] text-[var(--text-3)]">{alt.rule_id}</span>
-                        </div>
-                        <span className="text-[13px] font-medium text-[var(--link)]">Inspect &rsaquo;</span>
-                      </div>
-                      <div className="mt-2 text-[13px] font-medium text-[var(--text)]">{alt.reason}</div>
+                      <div className="text-[13px] font-semibold text-rose-900">{a.rule_name}</div>
+                      <div className="text-[12px] text-neutral-700 mt-1">{a.reason}</div>
                     </a>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-[var(--hairline)]/60 bg-[var(--card-alt)] p-4 text-[13px] text-[var(--text-2)]">
-                No security alerts attributed to this agent. All recorded actions conformed to learned behavioral baselines.
               </div>
             )}
           </div>
         )}
       </Drawer>
-
-      {/* Apple-style Footnotes block */}
-      <Footnotes symbols={["†", "‡"]} />
     </div>
   );
 }

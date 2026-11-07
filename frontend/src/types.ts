@@ -33,6 +33,9 @@ export interface ScenarioConfig {
   live_guard?: "off" | "detect" | "contain";
   pause_at?: number;
   persist: boolean;
+  user_task?: string;
+  agent_instructions?: Record<string, string>;
+  workspace_dir?: string;
 }
 
 export interface Agent {

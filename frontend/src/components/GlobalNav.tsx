@@ -9,10 +9,10 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", path: "#/", label: "Dashboard" },
-  { id: "live", path: "#/live", label: "Live Guard" },
+  { id: "live", path: "#/live", label: "Agent Runtime" },
   { id: "incidents", path: "#/incidents", label: "Incidents" },
-  { id: "assurance", path: "#/assurance", label: "Assurance" },
-  { id: "pipeline", path: "#/pipeline/simulator", label: "Pipeline" },
+  { id: "pipeline", path: "#/pipeline/simulator", label: "Data Pipeline" },
+  { id: "trust", path: "#/trust", label: "Why trust us" },
 ];
 
 export function GlobalNav({ currentRoute }: { currentRoute: string }) {
@@ -22,7 +22,7 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
     if (id === "dashboard" || id === "overview") return currentRoute === "" || currentRoute === "dashboard" || currentRoute === "overview" || currentRoute === "/";
     if (id === "live") return currentRoute.startsWith("live") || currentRoute.startsWith("swarm");
     if (id === "incidents") return currentRoute.startsWith("incidents") || currentRoute.startsWith("responses");
-    if (id === "assurance") return currentRoute.startsWith("assurance") || currentRoute.startsWith("owasp") || currentRoute.startsWith("coverage") || currentRoute.startsWith("evaluation");
+    if (id === "trust" || id === "assurance") return currentRoute.startsWith("trust") || currentRoute.startsWith("assurance") || currentRoute.startsWith("owasp") || currentRoute.startsWith("coverage") || currentRoute.startsWith("evaluation");
     if (id === "pipeline") return currentRoute.startsWith("pipeline") || currentRoute.startsWith("simulator") || currentRoute.startsWith("collector") || currentRoute.startsWith("detection");
     return currentRoute.startsWith(id);
   };
@@ -44,9 +44,29 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
         </div>
 
         {/* Center Nav Links - Truly Centralized */}
-        <nav className="flex items-center justify-center gap-5 sm:gap-8 overflow-x-auto no-scrollbar px-2" aria-label="Main Navigation">
+        <nav className="flex items-center justify-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar px-2" aria-label="Main Navigation">
           {NAV_ITEMS.map((item) => {
             const active = isCurrent(item.id);
+            const isTrust = item.id === "trust";
+
+            if (isTrust) {
+              return (
+                <a
+                  key={item.id}
+                  href={item.path}
+                  aria-current={active ? "page" : undefined}
+                  className={`my-auto flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[13px] sm:text-[14px] font-medium transition-all whitespace-nowrap shadow-xs ${
+                    active
+                      ? "bg-[#F1FAF4] text-[#1F7A45] border border-[#2E9E5B]/50 ring-1 ring-[#2E9E5B]/20 font-semibold"
+                      : "text-[#1F7A45]/80 hover:text-[#1F7A45] hover:bg-[#F1FAF4] border border-[#2E9E5B]/20"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#2E9E5B]" : "bg-[#2E9E5B]/60"}`} />
+                  <span>{item.label}</span>
+                </a>
+              );
+            }
+
             return (
               <a
                 key={item.id}

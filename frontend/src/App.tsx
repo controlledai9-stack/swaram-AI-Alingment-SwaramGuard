@@ -16,6 +16,14 @@ export function useHashRoute(): string {
       window.location.hash = "#/";
       return "";
     }
+    if (raw === "assurance" || raw === "standards" || raw === "coverage") {
+      window.location.hash = "#/trust";
+      return "trust";
+    }
+    if (raw.startsWith("assurance/")) {
+      window.location.hash = "#/trust" + raw.substring("assurance".length);
+      return "trust" + raw.substring("assurance".length);
+    }
     if (raw === "detection") {
       window.location.hash = "#/pipeline/detection";
       return "pipeline/detection";
@@ -64,20 +72,22 @@ export default function App() {
   if (route === "" || route === "/" || cleanRoute === "dashboard" || cleanRoute === "overview") {
     content = <OverviewPage />;
   } else if (cleanRoute === "incidents") {
-    const alertId = route.split("/")[1];
-    content = <IncidentsPage initialAlertId={alertId} initialView="alerts" />;
+    const subRoute = route.split("/")[1];
+    const isAlertId = subRoute && subRoute.startsWith("alt-");
+    const isAll = subRoute === "all" || isAlertId;
+    content = <IncidentsPage initialAlertId={isAlertId ? subRoute : undefined} initialView={isAll ? "all" : "needs_decision"} />;
   } else if (cleanRoute === "responses") {
-    content = <IncidentsPage initialView="reviews" />;
+    content = <IncidentsPage initialView="needs_decision" />;
   } else if (cleanRoute === "swarm") {
     content = <LivePage initialView="topology" />;
   } else if (cleanRoute === "live") {
     const isTopology = route.includes("swarm") || route.includes("topology");
     content = <LivePage initialView={isTopology ? "topology" : "feed"} />;
-  } else if (cleanRoute === "owasp" || cleanRoute === "coverage") {
+  } else if (cleanRoute === "owasp") {
     content = <AssurancePage initialTab="owasp" />;
   } else if (cleanRoute === "evaluation") {
     content = <AssurancePage initialTab="benchmarks" />;
-  } else if (cleanRoute === "assurance" || cleanRoute === "standards") {
+  } else if (cleanRoute === "trust" || cleanRoute === "assurance" || cleanRoute === "standards" || cleanRoute === "coverage") {
     const tab = route.includes("proof") ? "outside_proof" : route.includes("benchmark") || route.includes("eval") ? "benchmarks" : "owasp";
     content = <AssurancePage initialTab={tab} />;
   } else if (cleanRoute === "pipeline") {

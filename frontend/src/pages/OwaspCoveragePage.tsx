@@ -62,7 +62,7 @@ export function OwaspCoveragePage({ hideHeader = false }: { hideHeader?: boolean
             {data?.summary.strong ?? 7}
           </div>
           <p className="mt-1 text-[13px] text-[var(--text-2)] leading-relaxed">
-            Detected and pre-execution enforced with verified automated tests.
+            Stopped before it ran with verified automated tests.
           </p>
         </div>
 
@@ -92,7 +92,7 @@ export function OwaspCoveragePage({ hideHeader = false }: { hideHeader?: boolean
             {data?.summary.none ?? 0}
           </div>
           <p className="mt-1 text-[13px] text-[var(--text-2)] leading-relaxed">
-            All 10 agentic risks addressed across 29 active threat rules.
+            All 10 agentic risks addressed across 30 active threat rules.
           </p>
         </div>
       </div>
