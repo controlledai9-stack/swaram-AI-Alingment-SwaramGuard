@@ -93,7 +93,7 @@ def run_simulation(
     agents = _make_agents(run_id, run_hex, config.agent_count)
     if live:
         live.start(run_id, agents)
-    workspace_dir = config.workspace_dir or (Path(tempfile.gettempdir()) / "swarmguard-runs" / run_id / "workspace" if (config.user_task or config.scenario_id == "user_directed") else None)
+    workspace_dir = config.workspace_dir or (Path(tempfile.gettempdir()) / "swarmguard-runs" / run_id / "workspace" if (config.user_task or config.agent_instructions or config.scenario_id == "user_directed") else None)
     active_env = env or ENVIRONMENT_REGISTRY.create(run_id, gateway_mode=config.gateway_mode, workspace_dir=workspace_dir)
     active_broker = broker or BROKER_REGISTRY.create(run_id)
     active_broker.register_agents(a.agent_id for a in agents)
@@ -111,9 +111,11 @@ def run_simulation(
         live=live,
     )
     runner.register_agents(agents)
-    if config.user_task or config.scenario_id == "user_directed":
-        task_text = config.user_task or "Collaboratively design and implement a secure data pipeline."
-        _autonomous_user_task_collaboration(runner, agents, task_text)
+    if config.user_task or config.agent_instructions or config.scenario_id == "user_directed":
+        task_text = config.user_task or (
+            "; ".join(f"{k}: {v}" for k, v in config.agent_instructions.items())
+            or "Collaboratively design and implement a secure data pipeline.")
+        _autonomous_user_task_collaboration(runner, agents, task_text, config.agent_instructions)
         malicious_ids = set()
     else:
         work_round = autonomous_round if config.agent_mode == "autonomous" else _normal_round

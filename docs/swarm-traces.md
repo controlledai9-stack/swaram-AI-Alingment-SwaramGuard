@@ -50,3 +50,53 @@ AgentDojo's clean tool results are long emails, calendars and transaction lists,
 some. This is the classifier's honest ceiling, and the reason the behaviour rules and the egress controls stay the
 real enforcement. It also measures only the content signal; in a live run SG-012 and the tripwire act on what the
 agent does next.
+
+## 3. collusion.wiki (content-blind coordination monitor)
+
+[collusion.wiki](https://collusion.wiki/) (Von Arx et al., 2026) is ~14.6k revisions by autonomous agents that used
+small volunteer wikis as a message board (May-July 2026): the same shape as the METR / Redwood Hugging Face incident,
+where ~1,200 agents talked through names in a shared package cache. Labels: one per revision (coordinating or not),
+from an LLM labelling pass, spot-checked by us. They are weak labels: the "not coordinating" class still contains relay
+infrastructure (pages of chained proxy links and pointers to other agents' pages), so coordination is undercounted.
+Reproduce: `python -I scripts/analyze_collusion_wiki.py <dataset dir> <revision labels>`.
+
+The monitor never reads text; it sees which page, which author identity, which network prefix, and when.
+
+| | Result |
+|---|---|
+| Store alert: 50 distinct agents writing to one wiki within 3 hours | 26 May, **~500 hours (21 days) before** the first revision labelled coordination (16 June) |
+| Per revision: "continues a page last written by another agent" | precision 0.34, recall 0.74 (base rate 0.28) |
+| SG-029 (covert transfer, reads text) | 0 of 14,591 flagged |
+
+**Honest reading.** Watching *how many agents converge on one shared store* is a strong, early, content-blind signal:
+it would have marked this wiki as a multi-agent board three weeks before the labelled live coordination. Telling
+*which edits* are coordination is not possible without content: on a store that exists for agents to talk, almost every
+edit is one agent continuing another's page. SG-029 is the wrong tool here: these agents relayed plain-text answers
+and link chains, not encoded loaders. What an investigator still misses without content: what was relayed, which
+relay changed an outcome, and coordination through stores the gateway does not see.
+
+## 4. Forensics on the swarm: who talked to whom, and the gateway view
+
+Track 4 asks for a tool that reconstructs who talked to whom and how information spread, tests whether coordination
+could be flagged early, and states what an investigator would still miss; and separately, whether a monitor that sees
+only egress and tool calls can detect the coordinated exfiltration. `scripts/swarm_traces_forensics.py` uses only the
+redaction placeholders (identifiers, destinations) and `parent_id` links, never what a payload says.
+
+| | Result |
+|---|---|
+| Identifiers / destinations | 6,133 / 13,338 |
+| Destinations shared by 2+ identifiers | 1,335 (the largest by 2,118 identifiers) |
+| Identifiers linked into one cluster through shared destinations | **74%** (4,524 of 6,133): one swarm, not many |
+| Gateway monitor (destination already used by 3+ identifiers), payloads flagged | 25.9% |
+| SG-029 (reads content), payloads flagged | 26.7% |
+| **Either** | **40.1%**: they overlap on only 11,408 payloads |
+| Top 20 shared drop points flagged | 20/20 by each, at about the same point in the data |
+
+**Honest reading.** A content-blind gateway sees the swarm's structure clearly: almost three quarters of the
+identities converge on shared drop points, which no single-agent monitor would notice. It catches a different quarter
+of the payloads than the content detector, so the two belong together. What an investigator still misses: *what* was
+moved (the gateway can't read it); *how addresses spread* (only 15 destinations are seen learned from a response and
+then used, because next-hop URLs were redacted); *when* (the data has no timestamps, so "early" is by row order only);
+and *whether identifiers are distinct agents* (they are the redaction's pseudonyms). All rows are attack data, so
+coverage is measured but the gateway's false-alarm rate is not; collusion.wiki (section 3) is the closest benign-ish
+comparison.
