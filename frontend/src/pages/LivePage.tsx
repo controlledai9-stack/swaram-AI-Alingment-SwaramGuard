@@ -358,8 +358,8 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
   return (
     <div className="min-w-0 space-y-6">
       <PageHeader
-        title="Agent Runtime."
-        subtitle="Watch autonomous agents collaborate in real time. Emergency pause and stop controls."
+        title="Swarm activity."
+        subtitle="Watch agent events as they happen or view how agents connect."
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <Segmented
@@ -370,8 +370,8 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
                 else window.location.hash = "#/live";
               }}
               options={[
-                { value: "feed", label: "Live Feed" },
-                { value: "topology", label: "Swarm Graph" },
+                { value: "feed", label: "Activity" },
+                { value: "topology", label: "Agent map" },
               ]}
             />
           </div>

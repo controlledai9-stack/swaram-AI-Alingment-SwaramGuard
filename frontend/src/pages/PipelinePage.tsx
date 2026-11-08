@@ -10,7 +10,7 @@ interface PipelinePageProps {
 
 const TABS = [
   { id: "simulator", label: "Agent simulator", Component: SimulatorPage },
-  { id: "collector", label: "Event Data", Component: CollectorPage },
+  { id: "collector", label: "Event collector", Component: CollectorPage },
   { id: "detection", label: "Threat detection", Component: DetectionPage },
   { id: "response", label: "Security response", Component: ResponsePage },
 ] as const;
@@ -37,8 +37,8 @@ export function PipelinePage({ subpage = "simulator" }: PipelinePageProps) {
       {/* Data Pipeline Header & Sub-tab switcher */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--hairline)]/60 pb-3">
         <div>
-          <h2 className="text-[20px] font-bold text-[var(--text)] tracking-tight">Data Pipeline</h2>
-          <p className="text-[13px] text-[var(--text-2)]">Multi-stage pipeline: simulation, event data ingestion, threat detection, and automated policy response.</p>
+          <h2 className="text-[20px] font-semibold text-[var(--text)] tracking-tight">Pipeline</h2>
+          <p className="text-[14px] text-[var(--text-2)]">Set up a run or inspect one stage of its processing.</p>
         </div>
         <div className="inline-flex rounded-full bg-[var(--hairline-subtle)] p-1">
           {TABS.map((tab) => {
@@ -46,7 +46,9 @@ export function PipelinePage({ subpage = "simulator" }: PipelinePageProps) {
             return (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => onTabChange(tab.id)}
+                aria-current={on ? "page" : undefined}
                 className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition-all ${
                   on
                     ? "bg-[var(--card)] text-[var(--text)] shadow-xs"

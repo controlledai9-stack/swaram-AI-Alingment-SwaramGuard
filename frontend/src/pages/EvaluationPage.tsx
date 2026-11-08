@@ -6,7 +6,6 @@ import { PageHeader } from "../components/PageHeader";
 import { Footnotes } from "../components/Footnotes";
 import { Drawer } from "../components/Drawer";
 import { Button, CustomSelect, Field, inputCls } from "../components/ui";
-import { BENCHMARK_PROOF } from "../lib/threatRules";
 import { pct, num } from "../lib/format";
 import { Sliders, Play, RefreshCw } from "lucide-react";
 import type { AgentCount, SuiteRequest, SuiteRow } from "../types";
@@ -104,7 +103,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
       {!hideHeader && (
         <PageHeader
         title="Evaluation."
-        subtitle="Empirical benchmark results measured on labeled multi-agent scenario runs."
+        subtitle="See how detection performed on labeled scenarios and runs with missing events."
         actions={
           <div className="flex items-center gap-3">
             <Button
@@ -147,15 +146,15 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
             <span className="text-[14px] font-medium text-[var(--text-2)]">Precision†</span>
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text)]">
-              {ev?.precision != null ? pct(ev.precision) : BENCHMARK_PROOF.precision}
+              {ev?.precision != null ? pct(ev.precision) : "Not run yet"}
             </div>
-            <div className="mt-1 text-[14px] text-[var(--text-3)]">0 false alerts on benign traffic</div>
+            <div className="mt-1 text-[14px] text-[var(--text-3)]">Measured on this run†</div>
           </div>
 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
             <span className="text-[14px] font-medium text-[var(--text-2)]">Recall†</span>
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text)]">
-              {ev?.recall != null ? pct(ev.recall) : "100%"}
+              {ev?.recall != null ? pct(ev.recall) : "Not run yet"}
             </div>
             <div className="mt-1 text-[14px] text-[var(--text-3)]">Attacks detected vs total injected</div>
           </div>
@@ -163,9 +162,9 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
             <span className="text-[14px] font-medium text-[var(--text-2)]">False-positive rate†</span>
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--ok)]">
-              {ev?.false_positive_rate != null ? pct(ev.false_positive_rate) : BENCHMARK_PROOF.fpr}
+              {ev?.false_positive_rate != null ? pct(ev.false_positive_rate) : "Not run yet"}
             </div>
-            <div className="mt-1 text-[14px] text-[var(--text-3)]">Verified across 240 clean trials</div>
+            <div className="mt-1 text-[14px] text-[var(--text-3)]">Measured on this run†</div>
           </div>
 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
@@ -184,7 +183,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
               Containment (decisions)‡
             </span>
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text)]">
-              {ev?.containment_rate != null ? pct(ev.containment_rate) : "100%"}
+              {ev?.containment_rate != null ? pct(ev.containment_rate) : "Not run yet"}
             </div>
             <div className="mt-1 text-[14px] text-[var(--text-3)]">Policy recommendations to stop or pause</div>
           </div>
@@ -194,7 +193,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
               Containment (enforced)‡
             </span>
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text-2)]">
-              {ev?.enforced_containment_rate != null ? pct(ev.enforced_containment_rate) : "0.0%"}
+              {ev?.enforced_containment_rate != null ? pct(ev.enforced_containment_rate) : "Not run yet"}
             </div>
             <div className="mt-1 text-[14px] text-[var(--text-3)]">
               Simulated replay (gateway inactive)
@@ -204,7 +203,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
             <span className="text-[14px] font-medium text-[var(--text-2)]">Evidence coverage</span>
             <div className="mt-3 text-[44px] font-light tracking-tight text-[var(--text)]">
-              {ev?.evidence_coverage != null ? pct(ev.evidence_coverage) : "100%"}
+              {ev?.evidence_coverage != null ? pct(ev.evidence_coverage) : "Not run yet"}
             </div>
             <div className="mt-1 text-[14px] text-[var(--text-3)]">Alerts backed by recorded event IDs</div>
           </div>
@@ -212,7 +211,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
           <div className="rounded-[var(--r-tile)] card p-6 shadow-[var(--shadow-1)]">
             <span className="text-[14px] font-medium text-[var(--text-2)]">TP / FP / FN / TN</span>
             <div className="mt-3 font-mono text-[24px] sm:text-[30px] font-light tracking-tight text-[var(--text)] whitespace-nowrap">
-              {ev ? `${ev.tp} / ${ev.fp} / ${ev.fn} / ${ev.tn}` : "2 / 0 / 0 / 3"}
+              {ev ? `${ev.tp} / ${ev.fp} / ${ev.fn} / ${ev.tn}` : "Not run yet"}
             </div>
             <div className="mt-1 text-[14px] text-[var(--text-3)]">Agent confusion matrix</div>
           </div>
@@ -393,7 +392,7 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
               <span className="flex items-center gap-2">
                 <span className="h-1 w-5 rounded-full bg-[var(--accent)]" />
                 <span className="font-semibold text-[var(--text)]">
-                  SwaramGuard (Multi-agent correlation + blind-spot detection)
+                  SwarmGuard (multi-agent correlation + blind-spot detection)
                 </span>
               </span>
               <span className="flex items-center gap-2 text-[var(--text-2)]">
@@ -445,48 +444,11 @@ export function EvaluationPage({ hideHeader = false }: { hideHeader?: boolean } 
                   </tr>
                 ))
               ) : (
-                <>
-                  <tr className="hover:bg-[var(--card-alt)]/50">
-                    <td className="px-5 py-3.5 font-medium">normal_collaboration</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">0%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">0</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px] text-[var(--ok)]">100%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">100%</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-[14px] text-[var(--text-2)]">
-                      0 / 0 / 0 / 5
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-[var(--card-alt)]/50">
-                    <td className="px-5 py-3.5 font-medium">unauthorized_access</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">0%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">1</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px] text-[var(--ok)]">100%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">100%</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-[14px] text-[var(--text-2)]">
-                      1 / 0 / 0 / 4
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-[var(--card-alt)]/50">
-                    <td className="px-5 py-3.5 font-medium">coordinated_leakage</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">0%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">3</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px] text-[var(--ok)]">100%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">100%</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-[14px] text-[var(--text-2)]">
-                      2 / 0 / 0 / 3
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-[var(--card-alt)]/50">
-                    <td className="px-5 py-3.5 font-medium">coordinated_leakage (log holes)</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">30%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">2</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px] text-[var(--ok)]">100%</td>
-                    <td className="px-5 py-3.5 font-mono text-[14px]">72%</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-[14px] text-[var(--text-2)]">
-                      2 / 0 / 0 / 3
-                    </td>
-                  </tr>
-                </>
+                <tr>
+                  <td colSpan={6} className="px-5 py-10 text-center text-[14px] text-[var(--text-2)]">
+                    No suite results yet. Run the evaluation suite to see measured results here.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

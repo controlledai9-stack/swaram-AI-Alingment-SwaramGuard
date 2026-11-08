@@ -5,6 +5,8 @@ import { IncidentsPage } from "./pages/IncidentsPage";
 import { LivePage } from "./pages/LivePage";
 import { AssurancePage } from "./pages/AssurancePage";
 import { PipelinePage } from "./pages/PipelinePage";
+import { ResponsesPage } from "./pages/ResponsesPage";
+import { EvaluationPage } from "./pages/EvaluationPage";
 import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
 import { HistorySidebar } from "./components/HistorySidebar";
 import { useAppState } from "./state";
@@ -59,13 +61,6 @@ export default function App() {
   const route = useHashRoute();
   const { apiError } = useAppState();
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("sg_theme", "light");
-      document.documentElement.setAttribute("data-theme", "light");
-    } catch {}
-  }, []);
-
   // Route routing resolution across the 5 core hubs
   let content = <OverviewPage />;
   const cleanRoute = route.split("/")[0] || "dashboard";
@@ -78,7 +73,7 @@ export default function App() {
     const isAll = subRoute === "all" || isAlertId;
     content = <IncidentsPage initialAlertId={isAlertId ? subRoute : undefined} initialView={isAll ? "all" : "needs_decision"} />;
   } else if (cleanRoute === "responses") {
-    content = <IncidentsPage initialView="needs_decision" />;
+    content = <ResponsesPage />;
   } else if (cleanRoute === "swarm") {
     content = <LivePage initialView="topology" />;
   } else if (cleanRoute === "live") {
@@ -87,7 +82,7 @@ export default function App() {
   } else if (cleanRoute === "owasp") {
     content = <AssurancePage initialTab="owasp" />;
   } else if (cleanRoute === "evaluation") {
-    content = <AssurancePage initialTab="benchmarks" />;
+    content = <EvaluationPage />;
   } else if (cleanRoute === "trust" || cleanRoute === "assurance" || cleanRoute === "standards" || cleanRoute === "coverage") {
     const tab = route.includes("proof") ? "outside_proof" : route.includes("benchmark") || route.includes("eval") ? "benchmarks" : "owasp";
     content = <AssurancePage initialTab={tab} />;

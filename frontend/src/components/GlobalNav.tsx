@@ -1,4 +1,5 @@
 import { useAppState } from "../state";
+import { ThemeToggle } from "./ThemeToggle";
 
 export interface NavItem {
   id: string;
@@ -7,11 +8,12 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { id: "dashboard", path: "#/", label: "Dashboard" },
-  { id: "live", path: "#/live", label: "Agent Runtime" },
+  { id: "dashboard", path: "#/", label: "Overview" },
+  { id: "live", path: "#/swarm", label: "Swarm" },
   { id: "incidents", path: "#/incidents", label: "Incidents" },
-  { id: "pipeline", path: "#/pipeline/simulator", label: "Data Pipeline" },
-  { id: "trust", path: "#/trust", label: "Why trust us" },
+  { id: "responses", path: "#/responses", label: "Responses" },
+  { id: "evaluation", path: "#/evaluation", label: "Evaluation" },
+  { id: "pipeline", path: "#/pipeline/simulator", label: "Pipeline" },
 ];
 
 export function GlobalNav({ currentRoute }: { currentRoute: string }) {
@@ -21,15 +23,16 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
   const isCurrent = (id: string) => {
     if (id === "dashboard" || id === "overview") return currentRoute === "" || currentRoute === "dashboard" || currentRoute === "overview" || currentRoute === "/";
     if (id === "live") return currentRoute.startsWith("live") || currentRoute.startsWith("swarm");
-    if (id === "incidents") return currentRoute.startsWith("incidents") || currentRoute.startsWith("responses");
-    if (id === "trust" || id === "assurance") return currentRoute.startsWith("trust") || currentRoute.startsWith("assurance") || currentRoute.startsWith("owasp") || currentRoute.startsWith("coverage") || currentRoute.startsWith("evaluation");
+    if (id === "incidents") return currentRoute.startsWith("incidents");
+    if (id === "responses") return currentRoute.startsWith("responses");
+    if (id === "evaluation") return currentRoute.startsWith("evaluation");
     if (id === "pipeline") return currentRoute.startsWith("pipeline") || currentRoute.startsWith("simulator") || currentRoute.startsWith("collector") || currentRoute.startsWith("detection");
     return currentRoute.startsWith(id);
   };
 
   return (
-    <header className="sticky top-0 z-40 h-12 w-full border-b border-[var(--hairline)]/60 bg-[var(--glass)] backdrop-blur-xl">
-      <div className="mx-auto grid h-full max-w-[1280px] grid-cols-[auto_1fr_auto] md:grid-cols-[1fr_auto_1fr] items-center px-4 sm:px-6">
+    <header className="sticky top-0 z-40 min-h-12 w-full border-b border-[var(--hairline)]/60 bg-[var(--glass)] backdrop-blur-xl">
+      <div className="mx-auto grid min-h-12 max-w-[1280px] grid-cols-[1fr_auto] grid-rows-[48px_40px] items-center px-4 sm:px-6 md:h-12 md:grid-cols-[1fr_auto_1fr] md:grid-rows-1">
         {/* Left Wordmark */}
         <div className="flex items-center justify-start min-w-0">
           <a href="#/" className="shrink-0 flex items-center gap-2 text-[15px] font-semibold tracking-tight text-[var(--text)]">
@@ -39,34 +42,14 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
                 <path d="M5.3 9l1.9 1.9 3.6-3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-            <span>SwaramGuard</span>
+            <span>SwarmGuard</span>
           </a>
         </div>
 
         {/* Center Nav Links - Truly Centralized */}
-        <nav className="flex items-center justify-center gap-4 sm:gap-7 overflow-x-auto no-scrollbar px-2" aria-label="Main Navigation">
+        <nav className="col-span-2 row-start-2 flex min-w-0 items-center justify-start gap-5 overflow-x-auto no-scrollbar px-1 md:col-span-1 md:row-start-auto md:justify-center md:gap-4 md:px-2 lg:gap-7" aria-label="Main Navigation">
           {NAV_ITEMS.map((item) => {
             const active = isCurrent(item.id);
-            const isTrust = item.id === "trust";
-
-            if (isTrust) {
-              return (
-                <a
-                  key={item.id}
-                  href={item.path}
-                  aria-current={active ? "page" : undefined}
-                  className={`my-auto flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[13px] sm:text-[14px] font-medium transition-all whitespace-nowrap shadow-xs ${
-                    active
-                      ? "bg-[#F1FAF4] text-[#1F7A45] border border-[#2E9E5B]/50 ring-1 ring-[#2E9E5B]/20 font-semibold"
-                      : "text-[#1F7A45]/80 hover:text-[#1F7A45] hover:bg-[#F1FAF4] border border-[#2E9E5B]/20"
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#2E9E5B]" : "bg-[#2E9E5B]/60"}`} />
-                  <span>{item.label}</span>
-                </a>
-              );
-            }
-
             return (
               <a
                 key={item.id}
@@ -88,7 +71,8 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
         </nav>
 
         {/* Right Controls: Run Selector & Health Indicator */}
-        <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0">
+        <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-3 md:col-start-3">
+          <ThemeToggle />
           {selectedRun && (
             <span className="hidden max-w-[240px] truncate rounded-full border border-[var(--hairline)] px-3 py-1 text-[12px] text-[var(--text-2)] sm:inline"
                   title={`${selectedRun.run_id} · ${new Date(selectedRun.created_at).toLocaleString()}`}>

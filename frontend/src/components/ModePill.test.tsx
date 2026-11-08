@@ -3,10 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ModePill } from "./ModePill";
 
 describe("ModePill", () => {
-  it("renders 'Blocked at gateway' ONLY when mode is explicitly 'enforced'", () => {
+  it("says 'Stopped before it ran' ONLY when mode is explicitly 'enforced'", () => {
     const htmlEnforced = renderToStaticMarkup(<ModePill mode="enforced" decision="block" />);
-    expect(htmlEnforced.toLowerCase()).toContain("blocked");
-    expect(htmlEnforced).toContain("Blocked at gateway");
+    expect(htmlEnforced).toContain("Stopped before it ran");
+    for (const mode of ["enforce", "simulation"] as const) {  // configuration or replay is never a real stop
+      const html = renderToStaticMarkup(<ModePill mode={mode} decision="block" />);
+      expect(html.toLowerCase()).not.toContain("stopped");
+    }
   });
 
   it("NEVER contains the word 'blocked' when mode is 'enforce' (policy configuration)", () => {
@@ -40,7 +43,8 @@ describe("ModePill", () => {
 
   it("never calls a live containment without a denied action 'blocked'", () => {
     const html = renderToStaticMarkup(<ModePill mode="enforced" decision="pause" outcome="contained" />);
-    expect(html).toContain("Paused live");
+    expect(html).toContain("Agent paused");
     expect(html.toLowerCase()).not.toContain("blocked");
+    expect(html.toLowerCase()).not.toContain("stopped before it ran");
   });
 });

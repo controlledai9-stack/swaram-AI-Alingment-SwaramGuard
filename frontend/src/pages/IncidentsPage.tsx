@@ -212,6 +212,7 @@ export function IncidentsPage({
           window.location.hash = `#/incidents/${a.alert_id}`;
         }}
         type="button"
+        aria-pressed={isSelected}
         className={`w-full rounded-[var(--r-card)] card p-4 text-left transition-all ${
           unverified
             ? "border-stone-300 bg-stone-500/5 hover:border-stone-400"
@@ -229,9 +230,9 @@ export function IncidentsPage({
             ) : (
               <Pill value={a.severity} />
             )}
-            <span className="font-mono text-[12px] text-[var(--text-3)]">{a.rule_id}</span>
+            <span className="font-mono text-[13px] text-[var(--text-3)]">{a.rule_id}</span>
           </div>
-          <span className="text-[12px] text-[var(--text-3)]">{time(a.created_at)}</span>
+          <span className="text-[14px] text-[var(--text-3)]">{time(a.created_at)}</span>
         </div>
 
         <div className="mt-2 text-[15px] font-semibold text-[var(--text)] line-clamp-2">
@@ -240,7 +241,7 @@ export function IncidentsPage({
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[14px] text-[var(--text-2)]">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[12px] text-[var(--text-3)]">Roles:</span>
+            <span className="text-[14px] text-[var(--text-3)]">Agent roles:</span>
             {a.agent_ids.map((id) => (
               <AgentRoleBadge
                 key={id}
@@ -269,7 +270,7 @@ export function IncidentsPage({
     <div className="space-y-8">
       <PageHeader
         title="Incidents."
-        subtitle="Investigate security incidents, inspect evidence, and decide whether to release or keep agents contained."
+        subtitle="Review flagged activity, inspect its event evidence, and handle pending decisions."
         actions={
           <div className="flex items-center gap-3">
             <Segmented
@@ -298,9 +299,8 @@ export function IncidentsPage({
       {mainView === "needs_decision" && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="max-w-2xl text-[14px] leading-relaxed text-[var(--text-2)]">
-              Every agent that was stopped by a safety trigger or policy rule waits here for your decision.
-              <strong> Release</strong> allows the agent to resume immediately; <strong>Keep contained</strong> keeps it paused.
+            <p className="max-w-2xl text-[15px] leading-relaxed text-[var(--text-2)]">
+              Review each pending item before choosing whether to release the agent or keep it paused.
             </p>
             <Segmented
               size="sm"
@@ -332,9 +332,9 @@ export function IncidentsPage({
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-[#1F7A45] mb-3">
                   <Check size={24} />
                 </div>
-                <h3 className="text-[17px] font-semibold text-[var(--text)]">All agents operating safely</h3>
+                <h3 className="text-[17px] font-semibold text-[var(--text)]">No decisions are waiting</h3>
                 <p className="mt-1 text-[14px] text-[var(--text-2)] max-w-md mx-auto">
-                  No agents are currently stopped or awaiting human review. The swarm is running within normal parameters.
+                  There are no pending agent decisions for this run.
                 </p>
               </div>
             )
@@ -382,7 +382,7 @@ export function IncidentsPage({
                   {alerts.length} Incident{alerts.length === 1 ? "" : "s"} Recorded
                 </div>
 
-                                <div className="space-y-4 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
+                <div className="space-y-4 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
                   {/* High Risk Group */}
                   {alerts.filter(a => a.severity === "critical" || a.severity === "high").length > 0 && (
                     <div className="space-y-2">
@@ -461,9 +461,9 @@ export function IncidentsPage({
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] block mb-1">
-                          Direct Security Control
+                          Agent decision
                         </span>
-                        <div className="text-[13px] text-[var(--text)]">
+                        <div className="text-[14px] text-[var(--text)]">
                           {pendingReviews.some(r => currentAlert.agent_ids.includes(r.agent_id)) ? (
                             <span className="text-rose-700 font-semibold flex items-center gap-1.5">
                               <ShieldAlert size={14} />
@@ -490,7 +490,7 @@ export function IncidentsPage({
                               className="h-8.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                             >
                               <Check size={13} />
-                              <span>Resume / Release</span>
+                              <span>Release agent</span>
                             </button>
                             <button
                               type="button"
@@ -502,7 +502,7 @@ export function IncidentsPage({
                               className="h-8.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                             >
                               <ShieldAlert size={13} />
-                              <span>Keep Contained (Block)</span>
+                              <span>Keep paused</span>
                             </button>
                           </>
                         ) : (
@@ -521,7 +521,7 @@ export function IncidentsPage({
                               className="h-8.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 text-[13px] shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                             >
                               <ShieldAlert size={13} />
-                              <span>Block Agent</span>
+                              <span>Pause agent</span>
                             </button>
                           )
                         )}
@@ -535,6 +535,8 @@ export function IncidentsPage({
                   <div className="flex gap-6">
                     <button
                       type="button"
+                      role="tab"
+                      aria-selected={activeTab === "summary"}
                       onClick={() => setActiveTab("summary")}
                       className={`pb-3 text-[14px] font-medium transition-colors relative ${
                         activeTab === "summary" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
@@ -547,6 +549,8 @@ export function IncidentsPage({
                     </button>
                     <button
                       type="button"
+                      role="tab"
+                      aria-selected={activeTab === "evidence"}
                       onClick={() => setActiveTab("evidence")}
                       className={`pb-3 text-[14px] font-medium transition-colors relative ${
                         activeTab === "evidence" ? "text-[var(--text)]" : "text-[var(--text-2)] hover:text-[var(--text)]"
@@ -644,8 +648,8 @@ export function IncidentsPage({
                 {/* Tab 2: Evidence */}
                 {activeTab === "evidence" && (
                   <div className="mt-6 space-y-4">
-                    <div className="text-[14px] text-[var(--text-2)]">
-                      The security monitor verified the following ordered events as direct evidence for this incident:
+                    <div className="text-[15px] text-[var(--text-2)]">
+                      Events linked to this incident, in recorded order:
                     </div>
 
                     <div className="divide-y divide-[var(--hairline-subtle)] rounded-xl card overflow-hidden">
@@ -653,10 +657,11 @@ export function IncidentsPage({
                         const evt = normalizedEvents.find((e) => e.event_id === id);
                         const role = evt ? (evt.agent_role || getAgentRole(evt.agent_id, agents, normalizedEvents)) : "unknown";
                         return (
-                          <div
+                          <button
+                            type="button"
                             key={id}
                             onClick={() => handleChipClick(id)}
-                            className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-[var(--card-alt)] incident-evidence-row"
+                            className="flex w-full cursor-pointer items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-[var(--card-alt)] incident-evidence-row"
                           >
                             <div className="flex items-center gap-3">
                               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--card-alt)] font-mono text-[12px] text-[var(--text-2)]">
@@ -672,7 +677,7 @@ export function IncidentsPage({
                                   </span>
                                 </div>
                                 <div className="text-[14px] text-[var(--text-2)]">
-                                  {evt ? `${evt.event_type} &middot; action: ${evt.action}` : "Raw event"}
+                                  {evt ? `${evt.event_type} &middot; action: ${evt.action}` : "Event not found in collector"}
                                 </div>
                               </div>
                             </div>
@@ -685,7 +690,7 @@ export function IncidentsPage({
                                 Inspect JSON &rarr;
                               </span>
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>

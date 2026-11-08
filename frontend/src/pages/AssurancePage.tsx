@@ -49,7 +49,7 @@ export function AssurancePage({ initialTab = "owasp" }: { initialTab?: TrustTab 
           </h1>
 
           <p className="mt-3 max-w-3xl text-lg sm:text-[19px] leading-relaxed text-[#1F7A45]/90 font-normal">
-            Every safety rule in SwaramGuard is tested against realistic attack scenarios, multi-agent data leaks, and industry threat benchmarks across verified test runs.
+            Every SwarmGuard safety rule is evaluated against attack scenarios, multi-agent data leaks, and public security benchmarks.
           </p>
 
           {/* Simple Tab Switcher */}

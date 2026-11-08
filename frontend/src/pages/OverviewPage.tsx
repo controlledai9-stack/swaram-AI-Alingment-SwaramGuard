@@ -36,7 +36,13 @@ export function OverviewPage() {
     return set;
   }, [alerts]);
 
-  const topAlert = alerts[0];
+  const topAlert = useMemo(() => {
+    const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    return [...alerts].sort((a, b) =>
+      (severityRank[b.severity] ?? 0) - (severityRank[a.severity] ?? 0) ||
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0];
+  }, [alerts]);
   const totalIncidents = alerts.length;
 
   // Severity breakdown
@@ -47,13 +53,9 @@ export function OverviewPage() {
   // Metric 1: Stopped before it ran = actions the gate actually refused in this run.
   const stoppedBeforeRanCount = events.filter((e) => e.status === "denied").length;
 
-  // Metric 2: Agents stopped = agents SwarmGuard paused or held (each containment opens a review item).
-  const agentsStoppedCount = new Set(
-    runReviews.filter((r) => r.kind === "paused_agent" || r.kind === "held_egress").map((r) => r.agent_id)
-  ).size;
-
-  // Harmful actions that actually ran: high/critical alert evidence that completed (status success).
-  const harmfulExecutedCount = useMemo(() => {
+  const flaggedAgentsCount = new Set(alerts.flatMap((alert) => alert.agent_ids ?? [])).size;
+  // Completed events linked to high-severity alerts need review; the alert alone does not prove harm.
+  const flaggedCompletedActionCount = useMemo(() => {
     const ids = new Set(alerts.filter((a) => a.severity === "high" || a.severity === "critical").flatMap((a) => a.event_ids ?? []));
     return events.filter(
       (e) => ids.has(e.event_id) && e.status === "success" &&
@@ -82,11 +84,10 @@ export function OverviewPage() {
     if (untrustedRead) steps.push({ label: "Untrusted content read", tone: red });
     if (topAlert) steps.push({ label: `Detected: ${topAlert.rule_name}`, tone: amber });
     if (stoppedBeforeRanCount) steps.push({ label: `${stoppedBeforeRanCount} action${stoppedBeforeRanCount === 1 ? "" : "s"} stopped before running`, tone: blue });
-    if (harmfulExecutedCount) steps.push({ label: `${harmfulExecutedCount} harmful action${harmfulExecutedCount === 1 ? "" : "s"} ran`, tone: red });
-    if (agentsStoppedCount) steps.push({ label: `${agentsStoppedCount} agent${agentsStoppedCount === 1 ? "" : "s"} paused or held`, tone: grey });
+    if (flaggedCompletedActionCount) steps.push({ label: `${flaggedCompletedActionCount} linked high-risk action${flaggedCompletedActionCount === 1 ? "" : "s"} completed`, tone: red });
     if (pendingReviews.length) steps.push({ label: `${pendingReviews.length} waiting for a human decision`, tone: grey });
     return steps;
-  }, [untrustedRead, topAlert, stoppedBeforeRanCount, harmfulExecutedCount, agentsStoppedCount, pendingReviews.length]);
+  }, [untrustedRead, topAlert, stoppedBeforeRanCount, flaggedCompletedActionCount, pendingReviews.length]);
 
   // Loading and selection states
   const isNoRun = !selectedRunId;
@@ -147,16 +148,16 @@ export function OverviewPage() {
       {/* Page Header */}
       <div className="space-y-1">
         <h1 className="text-[36px] sm:text-[44px] font-bold tracking-tight text-[var(--text)]">
-          Dashboard.
+          SwarmGuard.
         </h1>
         <p className="text-[16px] text-[var(--text-2)]">
-          Current safety status across all autonomous agents in your swarm.
+          See what happened in your run, why it was flagged, and what response followed.
         </p>
       </div>
 
       {/* Hero: If No Run Selected -> Clean "Start live demo" Banner */}
       {isNoRun && (
-        <div className="rounded-[var(--r-tile)] card p-10 text-center shadow-[var(--shadow-1)] border border-[var(--hairline)]">
+        <div className="rounded-[var(--r-tile)] card p-8 text-center shadow-[var(--shadow-1)] border border-[var(--hairline)]">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)] mb-4">
             <Play size={28} className="fill-current ml-0.5" />
           </div>
@@ -164,7 +165,7 @@ export function OverviewPage() {
             No active run selected
           </h2>
           <p className="mt-2 text-[15px] text-[var(--text-2)] max-w-lg mx-auto">
-            Launch a realistic multi-agent attack scenario to observe real-time threat detection, stopping harmful actions before they run, and swarm safety triggers.
+            Start a sample run to see how the system records agent activity and flags risky behavior.
           </p>
           <div className="mt-6">
             <button
@@ -180,7 +181,7 @@ export function OverviewPage() {
         </div>
       )}
 
-      {/* 1. Verdict Banner: "X incidents · Y agents stopped · 0 harmful actions executed" */}
+      {/* 1. Verdict Banner: findings and affected agents from the selected run */}
       {!isNoRun && (
         <div
           className={`rounded-[var(--r-tile)] card p-8 shadow-[var(--shadow-1)] border transition-all ${
@@ -195,12 +196,12 @@ export function OverviewPage() {
                 {isCleanRun ? (
                   <span className="flex items-center gap-1.5 text-[#1F7A45]">
                     <ShieldCheck size={16} />
-                    <span>Swarm Operating Safely</span>
+                    <span>No incidents recorded</span>
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 text-rose-700">
                     <ShieldAlert size={16} />
-                    <span>Safety Interventions Active</span>
+                    <span>Incidents found</span>
                   </span>
                 )}
               </div>
@@ -208,22 +209,18 @@ export function OverviewPage() {
               {/* Verdict Banner Sentence */}
               <h2 className="mt-2 text-[26px] sm:text-[32px] font-bold leading-tight tracking-tight text-[var(--text)]">
                 {isCleanRun ? (
-                  "0 incidents · 0 agents stopped · 0 harmful actions executed"
+                  "No incidents were recorded for this run."
                 ) : (
-                  `${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} · ${agentsStoppedCount} agent${
-                    agentsStoppedCount === 1 ? "" : "s"
-                  } stopped · ${harmfulExecutedCount} harmful action${harmfulExecutedCount === 1 ? "" : "s"} executed`
+                  `${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} found · ${flaggedAgentsCount} agent${flaggedAgentsCount === 1 ? "" : "s"} flagged`
                 )}
               </h2>
 
               <p className="mt-2 text-[15px] text-[var(--text-2)] leading-relaxed">
                 {isCleanRun
-                  ? `All participating agents in run ${selectedRunId} operated strictly within approved boundaries.`
-                  : harmfulExecutedCount === 0
-                  ? "Every harmful action in this run was stopped before it ran."
-                  : `${harmfulExecutedCount} harmful action${harmfulExecutedCount === 1 ? " ran" : "s ran"} before ${
-                      harmfulExecutedCount === 1 ? "it was" : "they were"
-                    } caught (the gateway was not enforcing for ${harmfulExecutedCount === 1 ? "it" : "them"}); see the incident for what to do.`}
+                  ? `No incidents were recorded for run ${selectedRunId}. A clean result does not prove that every action was safe.`
+                  : flaggedCompletedActionCount === 0
+                  ? `No linked high-risk action is recorded as completed in run ${selectedRunId}. Review the evidence and response for context.`
+                  : `${flaggedCompletedActionCount} linked high-risk action${flaggedCompletedActionCount === 1 ? " was" : "s were"} recorded as completed. Review the evidence and response.`}
               </p>
             </div>
 
@@ -243,7 +240,7 @@ export function OverviewPage() {
                   href={`#/incidents/${topAlert.alert_id}`}
                   className="inline-flex h-11 items-center gap-2 rounded-full bg-[var(--card)] border border-[var(--hairline)] hover:border-[var(--text-3)] px-5 text-[14px] font-medium text-[var(--text)] shadow-xs transition-colors"
                 >
-                  <span>View incidents</span>
+                  <span>Open incident</span>
                   <ArrowRight size={15} />
                 </a>
               )}
@@ -262,10 +259,10 @@ export function OverviewPage() {
             tone="ok"
           />
           <Tile
-            label="Agents stopped"
-            value={agentsStoppedCount}
-            subtext="Paused by safety trigger"
-            tone={agentsStoppedCount > 0 ? "crit" : "normal"}
+            label="Agents flagged"
+            value={flaggedAgentsCount}
+            subtext="Named in incident records"
+            tone={flaggedAgentsCount > 0 ? "crit" : "normal"}
           />
           <Tile
             label="Incidents by severity"
@@ -275,7 +272,7 @@ export function OverviewPage() {
                 : highCount > 0
                 ? `${highCount} high`
                 : medCount > 0
-                ? `${medCount} med`
+                ? `${medCount} medium`
                 : "None"
             }
             subtext={
@@ -303,14 +300,14 @@ export function OverviewPage() {
                 Swarm Communication &amp; Safety Topology
               </h3>
               <p className="text-[13px] text-[var(--text-2)]">
-                Stopped agents shown in red with lock indicator. Highlighted paths indicate intercepted communication.
+                Red marks agents named in incident records. Highlighted paths show events linked to alerts.
               </p>
             </div>
             <a
-              href="#/live"
+              href="#/swarm"
               className="text-[13px] font-medium text-[var(--accent)] hover:underline flex items-center gap-1"
             >
-              <span>Watch agent runtime</span>
+              <span>View swarm activity</span>
               <ArrowRight size={13} />
             </a>
           </div>
@@ -363,7 +360,7 @@ export function OverviewPage() {
               href={`#/incidents/${topAlert.alert_id}`}
               className="h-9 rounded-full bg-[var(--accent)] hover:opacity-90 text-white font-medium px-4 text-[13px] shadow-xs transition-opacity inline-flex items-center gap-1.5 shrink-0"
             >
-              <span>View incident</span>
+              <span>Review evidence</span>
               <ArrowRight size={13} />
             </a>
           </div>
@@ -373,14 +370,14 @@ export function OverviewPage() {
       {/* 7. Footer Trust Line */}
       <footer className="border-t border-[var(--hairline-subtle)] pt-6 pb-2 text-[13px] text-[var(--text-2)] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Check size={16} className="text-[#1F7A45]" />
-          <span>OWASP agentic risks: 7 of 10 strongly covered, 3 partly &middot; 32,718 covert-transfer payloads caught in a real swarm incident</span>
+          <Check size={16} aria-hidden="true" />
+          <span>Review results in context. Detection does not prove compromise.</span>
         </div>
         <a
-          href="#/trust"
-          className="font-semibold text-[#1F7A45] hover:underline flex items-center gap-1"
+          href="#/evaluation"
+          className="font-medium text-[var(--link)] hover:underline flex items-center gap-1"
         >
-          <span>Why trust us</span>
+          <span>View evaluation</span>
           <ArrowRight size={13} />
         </a>
       </footer>
