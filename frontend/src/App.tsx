@@ -6,6 +6,7 @@ import { LivePage } from "./pages/LivePage";
 import { AssurancePage } from "./pages/AssurancePage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
+import { HistorySidebar } from "./components/HistorySidebar";
 import { useAppState } from "./state";
 
 export function useHashRoute(): string {
@@ -98,7 +99,10 @@ export default function App() {
   const isWide = cleanRoute === "swarm" || route.includes("swarm") || route.includes("topology");
 
   return (
-    <div className="min-h-screen bg-[var(--bg-alt)] text-[var(--text)] selection:bg-[var(--accent)]/20">
+    <div className="flex min-h-screen bg-[var(--bg-alt)] text-[var(--text)] selection:bg-[var(--accent)]/20">
+      {/* ChatGPT-style History: saved runs, How to use, Gemini usage, account */}
+      <HistorySidebar />
+      <div className="min-w-0 flex-1">
       {/* 48px Apple-style Global Nav */}
       <GlobalNav currentRoute={route} />
 
@@ -113,6 +117,7 @@ export default function App() {
         )}
         {content}
       </main>
+      </div>
     </div>
   );
 }

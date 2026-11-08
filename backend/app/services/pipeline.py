@@ -318,8 +318,14 @@ class Pipeline:
         if config.scenario_id not in SCENARIOS_BY_ID:
             raise ValueError(f"Unknown scenario: {config.scenario_id}")
         quota.check_run(config)
+        import contextvars
+
+        from app.identity import RUN_OWNERS, current_user
+
         run_id = f"run-{uuid.uuid4().hex[:8]}"
-        ACTIVE_RUNS[run_id] = {"run_id": run_id, "scenario_id": config.scenario_id, "started_at": now_iso()}
+        RUN_OWNERS[run_id] = current_user.get()  # so its live messages reach only its owner while it runs
+        ACTIVE_RUNS[run_id] = {"run_id": run_id, "scenario_id": config.scenario_id, "started_at": now_iso(),
+                               "name": config.run_name, "owner": current_user.get()}
 
         def work() -> None:
             try:
@@ -329,7 +335,8 @@ class Pipeline:
             finally:
                 ACTIVE_RUNS.pop(run_id, None)
 
-        threading.Thread(target=work, name=f"swarmguard-{run_id}", daemon=True).start()
+        ctx = contextvars.copy_context()  # the background run keeps the caller's identity (Run.owner)
+        threading.Thread(target=ctx.run, args=(work,), name=f"swarmguard-{run_id}", daemon=True).start()
         return run_id
 
     def collect(self, run_id: str | None, events: list[Any] | None = None, persist: bool = True) -> CollectionResult:

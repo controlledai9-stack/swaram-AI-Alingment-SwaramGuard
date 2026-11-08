@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api } from "./api";
 import type { Meta, Run } from "./types";
 
-const RUN_KEY = "swaramguard.selectedRun";
+const RUN_KEY_PREFIX = "swaramguard.selectedRun";
 
 interface AppState {
   runs: Run[];
@@ -16,20 +16,22 @@ interface AppState {
 
 const Ctx = createContext<AppState | null>(null);
 
-function readStoredRun(): string | null {
+function readStoredRun(key: string): string | null {
   try {
-    return localStorage.getItem(RUN_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-export function AppStateProvider({ children }: { children: ReactNode }) {
+/** `account` scopes the remembered run to the signed-in person (each account has its own History). */
+export function AppStateProvider({ children, account = "local" }: { children: ReactNode; account?: string }) {
+  const RUN_KEY = `${RUN_KEY_PREFIX}.${account}`;
   const [runs, setRuns] = useState<Run[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [health, setHealth] = useState<AppState["health"]>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [selectedRunId, setSelected] = useState<string | null>(readStoredRun);
+  const [selectedRunId, setSelected] = useState<string | null>(() => readStoredRun(RUN_KEY));
 
   const selectRun = useCallback((id: string | null) => {
     setSelected(id);
@@ -39,14 +41,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     } catch {
       /* storage unavailable: selection just won't survive reload */
     }
-  }, []);
+  }, [RUN_KEY]);
 
   const refreshRuns = useCallback(async () => {
     try {
       const list = await api.runs();
       setRuns(list);
       setApiError(null);
-      setSelected((cur) => (cur && list.some((r) => r.run_id === cur) ? cur : list[0]?.run_id ?? null));
+      // Keep the chosen run if it still exists; never pick one automatically (runs are opened from History).
+      setSelected((cur) => (cur && list.some((r) => r.run_id === cur) ? cur : null));
     } catch (e) {
       setApiError((e as Error).message);
     }

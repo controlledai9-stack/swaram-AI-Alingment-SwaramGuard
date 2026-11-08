@@ -1,5 +1,4 @@
 import { useAppState } from "../state";
-import { CustomSelect } from "./CustomSelect";
 
 export interface NavItem {
   id: string;
@@ -16,7 +15,8 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export function GlobalNav({ currentRoute }: { currentRoute: string }) {
-  const { runs, selectedRunId, selectRun, health } = useAppState();
+  const { runs, selectedRunId, health } = useAppState();
+  const selectedRun = runs.find((r) => r.run_id === selectedRunId);
 
   const isCurrent = (id: string) => {
     if (id === "dashboard" || id === "overview") return currentRoute === "" || currentRoute === "dashboard" || currentRoute === "overview" || currentRoute === "/";
@@ -89,22 +89,11 @@ export function GlobalNav({ currentRoute }: { currentRoute: string }) {
 
         {/* Right Controls: Run Selector & Health Indicator */}
         <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0">
-          {runs.length > 0 && (
-            <div className="w-[150px] sm:w-[240px]">
-              <CustomSelect
-                value={selectedRunId ?? ""}
-                onChange={(val) => selectRun(val || null)}
-                options={runs.map((r) => ({
-                  value: r.run_id,
-                  label: `${r.run_id} (${r.scenario_id.replace(/_/g, " ")})`,
-                  description: `${r.agent_count} agents · ${r.stages?.detected ? "detected" : "in progress"}`,
-                }))}
-                size="sm"
-                variant="pill"
-                align="right"
-                ariaLabel="Select active run"
-              />
-            </div>
+          {selectedRun && (
+            <span className="hidden max-w-[240px] truncate rounded-full border border-[var(--hairline)] px-3 py-1 text-[12px] text-[var(--text-2)] sm:inline"
+                  title={`${selectedRun.run_id} · ${new Date(selectedRun.created_at).toLocaleString()}`}>
+              {selectedRun.name?.trim() || selectedRun.scenario_id.replace(/_/g, " ")}
+            </span>
           )}
 
           {health && (

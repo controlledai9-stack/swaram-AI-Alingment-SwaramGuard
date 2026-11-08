@@ -53,7 +53,8 @@ def test_each_role_can_do_exactly_its_part(client, role, read, act, configure, i
 
 def test_x_api_key_header_and_whoami(client):
     me = client.get("/api/whoami", headers={"X-API-Key": KEYS["operator"]}).json()
-    assert me == {"auth": True, "name": "operator-user", "role": "operator"}
+    assert {k: me[k] for k in ("auth", "name", "role", "via")} == {"auth": True, "name": "operator-user", "role": "operator",
+                                                                   "via": "api_key"}
 
 
 def test_live_stream_needs_a_viewer_key(client):

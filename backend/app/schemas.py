@@ -60,6 +60,7 @@ class ScenarioConfig(BaseModel):
         "off", description="Stream every event to Threat Detection as it happens; 'contain' also pauses risky agents")
     pause_at: float = Field(0.6, ge=0.2, le=0.99, description="Risk at which live containment pauses an agent")
     persist: bool = True
+    run_name: Optional[str] = Field(None, max_length=120, description="A name for this run, shown in History")
     user_task: Optional[str] = Field(None, max_length=4000,
                                      description="User-provided task description for autonomous collaboration")
     agent_instructions: dict[Literal["planner", "researcher", "analyst", "coder", "reviewer"], str] = Field(
@@ -123,6 +124,8 @@ class Run(BaseModel):
     labels: RunLabels = Field(default_factory=RunLabels)
     dropped_event_ids: list[str] = Field(default_factory=list)
     log_anchor: Optional[str] = None  # hash-chain anchor of the collected log (collector/integrity.py)
+    name: Optional[str] = None  # what the user called this run (shown in History)
+    owner: Optional[str] = None  # who started it (email or API-key name); see app/identity.py
 
 
 class SimulationResult(BaseModel):

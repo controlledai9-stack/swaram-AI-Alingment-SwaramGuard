@@ -1,6 +1,8 @@
 """SwarmGuard FastAPI application."""
 from __future__ import annotations
 
+import re
+
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -69,7 +71,30 @@ async def require_api_key(request: Request, call_next):
                    else f"The {who.role} key '{who.name}' can't do this (needs {need}).")
             return JSONResponse(status_code=status, content={"detail": msg})
         request.state.principal = who
-    return await call_next(request)
+        m = _RUN_PATH.match(request.url.path)
+        if m and who is not None and not _visible(who, m.group(1)):
+            return JSONResponse(status_code=404, content={"detail": f"run {m.group(1)} not found"})
+    from app.identity import current_user
+
+    token = current_user.set(request.state.principal.name if request.state.principal else None)
+    try:
+        return await call_next(request)
+    finally:
+        current_user.reset(token)
+
+
+_RUN_PATH = re.compile(r"^/api/(?:runs|live)/(run-[A-Za-z0-9_-]+)")
+
+
+def _store():
+    return app.dependency_overrides.get(get_pipeline, get_pipeline)().store
+
+
+def _visible(who, run_id: str | None) -> bool:
+    """Signed-in people see only their own runs; admins and auth-off see everything."""
+    from app.identity import can_see
+
+    return can_see(who, run_id, _store())
 
 
 @app.exception_handler(NotFound)
@@ -96,8 +121,12 @@ def health(p: Pipeline = P) -> dict[str, Any]:
 
 @app.get("/api/whoami")
 def whoami(request: Request) -> dict[str, Any]:
+    from app import firebase_auth
+
     who = request.state.principal
-    return {"auth": who is not None, "name": who.name if who else None, "role": who.role if who else "local"}
+    return {"auth": who is not None, "name": who.name if who else None, "role": who.role if who else "local",
+            "display_name": getattr(who, "display_name", None), "picture": getattr(who, "picture", None),
+            "via": getattr(who, "via", None), "firebase_project": firebase_auth.project()}
 
 
 @app.get("/api/gemini/quota")
@@ -123,8 +152,11 @@ def get_module_info(name: str) -> dict[str, Any]:
 
 # ------------------------------------------------------------------ runs
 @app.get("/api/runs")
-def list_runs(limit: int = 50, p: Pipeline = P):
-    return p.list_runs(limit)
+def list_runs(request: Request, limit: int = 50, p: Pipeline = P):
+    who = request.state.principal
+    if who is None or who.role == "admin" or getattr(who, "via", "api_key") != "firebase":
+        return p.list_runs(limit)
+    return [r for r in p.list_runs(10_000) if r.owner == who.name][:limit]  # own runs only
 
 
 @app.get("/api/runs/{run_id}")
@@ -189,10 +221,10 @@ def start_run(config: ScenarioConfig, p: Pipeline = P) -> dict[str, Any]:
 
 
 @app.get("/api/live/active")
-def active_runs() -> list[dict[str, Any]]:
+def active_runs(request: Request) -> list[dict[str, Any]]:
     from app.services.pipeline import ACTIVE_RUNS
 
-    return list(ACTIVE_RUNS.values())
+    return [r for r in ACTIVE_RUNS.values() if _visible(request.state.principal, r["run_id"])]
 
 
 @app.post("/api/live/reset")
@@ -253,20 +285,30 @@ async def live(ws: WebSocket):
 
     from app import auth
 
-    if auth.enabled() and not auth.allowed(auth.identify(ws.query_params.get("key")), "viewer"):
+    who = auth.identify(ws.query_params.get("key")) if auth.enabled() else None
+    if auth.enabled() and not auth.allowed(who, "viewer"):
         await ws.close(code=1008)  # policy violation: no or wrong key
+        return
+    run_id = ws.query_params.get("run_id") or None
+    if run_id and not _visible(who, run_id):
+        await ws.close(code=1008)
         return
     await ws.accept()
     hub = get_hub()
-    run_id = ws.query_params.get("run_id") or None
+
+    def mine(msg: dict) -> bool:  # without a run filter, a signed-in person still sees only their runs' messages
+        return run_id is not None or _visible(who, msg.get("run_id"))
     since = int(ws.query_params.get("since") or 0)
     sub = hub.subscribe(asyncio.get_running_loop(), run_id)
     try:
         await ws.send_json({"type": "hello", "seq": 0, "run_id": run_id, "data": {"subscribers": hub.subscribers}})
         for msg in hub.replay(run_id, since):
-            await ws.send_json(msg)
+            if mine(msg):
+                await ws.send_json(msg)
         while True:
-            await ws.send_json(await sub.queue.get())
+            msg = await sub.queue.get()
+            if mine(msg):
+                await ws.send_json(msg)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
@@ -374,10 +416,13 @@ def ingest_finish(run_id: str, p: Pipeline = P) -> dict[str, Any]:
 
 # ------------------------------------------------------------------ review queue (Security Response)
 @app.get("/api/reviews")
-def reviews(status: str | None = None, run_id: str | None = None, p: Pipeline = P) -> list[dict[str, Any]]:
+def reviews(request: Request, status: str | None = None, run_id: str | None = None, p: Pipeline = P) -> list[dict[str, Any]]:
     from app.services import review
 
-    return review.items(p.store, status, run_id)
+    who = request.state.principal
+    if run_id and not _visible(who, run_id):
+        return []
+    return [i for i in review.items(p.store, status, run_id) if _visible(who, i.get("run_id"))]
 
 
 @app.post("/api/reviews/escalate")
@@ -394,6 +439,9 @@ def decide_review(review_id: str, body: dict[str, Any], request: Request, p: Pip
     from app.services import review
 
     who = request.state.principal
+    item = next((i for i in review.items(p.store) if i.get("review_id") == review_id), None)
+    if item is not None and not _visible(who, item.get("run_id")):
+        raise HTTPException(404, f"review {review_id} not found")
     return review.decide(p.store, review_id, body.get("decision", ""), body.get("note"), who.name if who else body.get("by"))
 
 

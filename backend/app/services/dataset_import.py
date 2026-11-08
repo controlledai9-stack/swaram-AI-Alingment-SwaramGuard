@@ -6,6 +6,7 @@ Runs already in the workspace are skipped, so importing twice is safe.
 """
 from __future__ import annotations
 
+from app.identity import current_user
 import json
 from pathlib import Path
 from typing import Callable
@@ -41,7 +42,7 @@ def import_dataset(pipeline, folder: str | Path, include_degraded: bool = False,
         events = [from_canonical_event(r, sequence=i + 1) for i, r in enumerate(records)]
         agents = [Agent(run_id=run_id, **a, is_malicious=a["agent_id"] in lab["malicious_agent_ids"]) for a in lab["agents"]]
         created = events[0].timestamp if events else now_iso()
-        run = Run(run_id=run_id, scenario_id=lab["scenario_id"], agent_count=len(agents), seed=lab.get("seed", 0),
+        run = Run(owner=current_user.get(), run_id=run_id, scenario_id=lab["scenario_id"], agent_count=len(agents), seed=lab.get("seed", 0),
                   gateway_mode="monitor", drop_rate=0.0, agent_backend=lab.get("backend") or "imported",
                   agent_mode="autonomous", created_at=now_iso(), base_time=str(created),
                   stages={"simulated": now_iso()}, counts={**lab.get("counts", {}), "agents": len(agents), "raw_events": len(events)},

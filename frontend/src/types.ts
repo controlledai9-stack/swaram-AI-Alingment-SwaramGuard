@@ -21,6 +21,7 @@ export interface Scenario {
 
 export interface ScenarioConfig {
   scenario_id: string;
+  run_name?: string;
   agent_count: AgentCount;
   seed: number;
   gateway_mode: GatewayMode;
@@ -69,6 +70,8 @@ export interface RunLabels {
 
 export interface Run {
   run_id: string;
+  name?: string | null;
+  owner?: string | null;
   scenario_id: string;
   agent_count: number;
   seed: number;

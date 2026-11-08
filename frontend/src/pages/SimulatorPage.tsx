@@ -202,6 +202,16 @@ export function SimulatorPage() {
         subtitle="Configure the multi-agent test scenario, swarm size, and gateway interception mode."
       >
         <div className="space-y-5">
+          <Field label="Run name" hint="Shown in History with the date and time the run starts">
+            <input
+              className={inputCls}
+              maxLength={120}
+              placeholder={`e.g. ${cfg.scenario_id.replace(/_/g, " ")} test`}
+              value={cfg.run_name ?? ""}
+              onChange={(e) => set("run_name", e.target.value)}
+            />
+          </Field>
+
           <Field label="Scenario" hint={scenario?.description} asDiv>
             <CustomSelect
               value={cfg.scenario_id}

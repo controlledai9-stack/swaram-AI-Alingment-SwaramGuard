@@ -17,6 +17,7 @@ token, so one agent (or a compromised process holding the platform's key) can't 
 """
 from __future__ import annotations
 
+from app.identity import current_user
 import base64
 import hashlib
 import hmac
@@ -106,7 +107,7 @@ def open_session(pipeline, name: str, agents: list[dict], live_guard: str = "con
             for a in agents]
     guard = LiveGuard(pipeline.rules(), live_guard, pause_at, policy=pipeline.policy()) if live_guard != "off" else None
     now = now_iso()
-    run = Run(run_id=run_id, scenario_id=f"ingest:{name}", agent_count=len(regs), seed=0, gateway_mode="monitor",
+    run = Run(owner=current_user.get(), run_id=run_id, scenario_id=f"ingest:{name}", agent_count=len(regs), seed=0, gateway_mode="monitor",
               drop_rate=0.0, agent_backend="external", agent_mode="external", created_at=now, base_time=now,
               stages={"ingesting": now}, counts={"agents": len(regs), "raw_events": 0})
     pipeline.store.put("runs", run_id, run.model_dump(mode="json"))

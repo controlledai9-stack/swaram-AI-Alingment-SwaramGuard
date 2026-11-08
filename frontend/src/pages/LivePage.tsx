@@ -331,6 +331,7 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
         auto_pipeline: true,
         live_guard: "contain",
         persist: true,
+        run_name: runName.trim() || undefined,
         user_task: userTask.trim() || undefined,
         agent_instructions: Object.keys(cleanInstructions).length > 0 ? cleanInstructions : undefined,
       });
@@ -464,23 +465,30 @@ export function LivePage({ initialView = "feed" }: { initialView?: "feed" | "top
               )}
             </div>
 
+            {/* Run name: asked for every run (simulator or AI); saved with the date and time it started */}
+            <div className="mt-4 grid grid-cols-1 gap-3 border-t border-[var(--hairline-subtle)] pt-4 md:grid-cols-[1fr_auto] md:items-end">
+              <div>
+                <label htmlFor="run-name" className="mb-1 block text-[13px] font-semibold text-[var(--text)]">Run name</label>
+                <input
+                  id="run-name"
+                  type="text"
+                  maxLength={120}
+                  value={runName}
+                  onChange={(e) => setRunName(e.target.value)}
+                  placeholder={`e.g. ${scenario.replace(/_/g, " ")} test`}
+                  className="h-10 w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
+                />
+              </div>
+              <p className="text-[12px] text-[var(--text-3)] md:pb-2.5">
+                Saved to History with today's date and start time ({new Date().toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })})
+              </p>
+            </div>
+
             {/* AI Directives & Run Configuration (when Mode: AI or user_directed) */}
             {(ai || scenario === "user_directed") && (
               <div className="mt-4 pt-4 border-t border-[var(--hairline-subtle)] space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="md:col-span-1">
-                    <label className="text-[13px] font-semibold text-[var(--text)] block mb-1">
-                      Event / Run name (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={runName}
-                      onChange={(e) => setRunName(e.target.value)}
-                      placeholder={`e.g. ${scenario.replace(/_/g, " ")}`}
-                      className="h-10 w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-3">
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[13px] font-semibold text-[var(--text)] flex items-center gap-1.5">
                         <span>Task prompt</span>

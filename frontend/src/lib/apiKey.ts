@@ -1,3 +1,5 @@
+import { firebaseToken } from "./firebase";
+
 /** The API key this browser uses when the server has SWARMGUARD_API_KEYS set (see backend/app/auth.py). */
 const STORE = "swarmguard.apiKey";
 export const AUTH_REQUIRED = "swarmguard-auth-required";
@@ -19,7 +21,12 @@ export function setApiKey(key: string): void {
   }
 }
 
+/** What this browser authenticates with: the Google sign-in token when signed in, else a saved API key. */
+export function currentCredential(): string {
+  return firebaseToken() || getApiKey();
+}
+
 export function authHeaders(): Record<string, string> {
-  const key = getApiKey();
+  const key = currentCredential();
   return key ? { Authorization: `Bearer ${key}` } : {};
 }

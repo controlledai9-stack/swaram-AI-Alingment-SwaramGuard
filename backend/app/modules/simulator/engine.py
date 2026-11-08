@@ -25,6 +25,7 @@ from app.timeutil import iso, now_iso, utcnow
 from app.modules.simulator.runner import AgentRunner, _make_agents, _first  # noqa: F401
 from app.modules.simulator.codework import _clean_json_or_text, _extract_code_block, _extract_solution_and_tests, _validate_python_syntax, _audit_code_implementation, _generate_deterministic_solution  # noqa: F401
 from app.modules.simulator.sandbox import CODE_EXEC_FLAG, _code_exec_allowed, _child_env, _execute_code_safely  # noqa: F401
+from app.identity import current_user
 from app.modules.simulator.collaboration import _autonomous_user_task_collaboration  # noqa: F401
 from app.modules.simulator.autonomous import autonomous_round
 
@@ -167,6 +168,8 @@ def run_simulation(
                 **(runner.ai_stats.counts() if hasattr(runner, "ai_stats") else {})},
         labels=RunLabels(malicious_agent_ids=sorted(malicious_ids), malicious_event_ids=runner.malicious_event_ids),
         dropped_event_ids=dropped,
+        name=(config.run_name or "").strip() or None,
+        owner=current_user.get(),
     )
     return SimulationResult(run=run, agents=agents, events=events)
 

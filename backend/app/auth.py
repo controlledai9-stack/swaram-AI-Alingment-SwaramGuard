@@ -14,6 +14,10 @@ Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`; the WebSock
 can't set headers on WebSockets). With no keys configured, authentication is off (local development) and
 /api/health says so. Keys are compared in constant time and never logged. Generate one with:
     python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+People can also sign in with Google through Firebase (app/firebase_auth.py): set SWARMGUARD_FIREBASE_AUTH_PROJECT and
+the browser's Firebase ID token is accepted the same way as a key. Signed-in people are operators (admins if listed in
+SWARMGUARD_ADMIN_EMAILS) and see only the runs they started.
 """
 from __future__ import annotations
 
@@ -28,8 +32,11 @@ ADMIN_PREFIXES = ("/api/detection-rules", "/api/response-policies", "/api/detect
 
 @dataclass(frozen=True)
 class Principal:
-    name: str
+    name: str  # API-key name, or the signed-in person's email
     role: str
+    display_name: str | None = None
+    picture: str | None = None
+    via: str = "api_key"  # "api_key" | "firebase"
 
 
 def load_keys(raw: str | None = None) -> dict[str, Principal]:
@@ -49,7 +56,9 @@ def load_keys(raw: str | None = None) -> dict[str, Principal]:
 
 
 def enabled() -> bool:
-    return bool(load_keys())
+    from app import firebase_auth
+
+    return bool(load_keys()) or bool(firebase_auth.project())
 
 
 def identify(key: str | None) -> Principal | None:
@@ -58,6 +67,14 @@ def identify(key: str | None) -> Principal | None:
     for known, who in load_keys().items():
         if hmac.compare_digest(known.encode(), key.encode()):
             return who
+    from app import firebase_auth
+
+    if firebase_auth.project() and key.count(".") == 2:  # a Firebase ID token (a JWT), not an API key
+        claims = firebase_auth.verify(key)
+        email = (claims or {}).get("email")
+        if claims and email and claims.get("email_verified", True) and firebase_auth.email_allowed(email):
+            return Principal(email.lower(), firebase_auth.role_for(email), claims.get("name"), claims.get("picture"),
+                             "firebase")
     return None
 
 
