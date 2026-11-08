@@ -104,3 +104,14 @@ def test_reset_live_endpoint(client):
     data = r.json()
     assert data["status"] == "ok"
     assert "released_containments" in data
+
+
+def test_reset_keeps_the_sequence_and_is_not_replayed(client):
+    from app.services.live_hub import HUB
+
+    HUB.publish("note", {"x": 1})
+    before = HUB.history[-1]["seq"]
+    assert client.post("/api/live/reset").status_code == 200
+    HUB.publish("note", {"x": 2})
+    assert HUB.history[-1]["seq"] > before  # clients that saw `before` still receive new messages
+    assert all(m["type"] != "reset" for m in HUB.history)  # late joiners don't replay the reset

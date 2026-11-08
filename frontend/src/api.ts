@@ -65,7 +65,13 @@ export const api = {
     post<SimulationResult>("/detection/replay", body),
   baseline: () => request<BaselineSummary>("/detection/baseline"),
   geminiQuota: () => request<GeminiQuotaStatus>("/gemini/quota"),
-  reviews: (status?: string) => request<ReviewItem[]>(`/reviews${status ? `?status=${status}` : ""}`),
+  reviews: (status?: string, runId?: string | null) => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    if (runId) q.set("run_id", runId);
+    const qs = q.toString();
+    return request<ReviewItem[]>(`/reviews${qs ? `?${qs}` : ""}`);
+  },
   decideReview: (id: string, decision: "release" | "confirm", note?: string, by?: string) =>
     request<ReviewItem>(`/reviews/${id}`, { method: "POST", body: JSON.stringify({ decision, note, by }) }),
   operateAgent: (runId: string, agentId: string, action: "pause" | "hold_egress", note?: string) =>

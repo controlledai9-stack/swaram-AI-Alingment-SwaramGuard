@@ -197,12 +197,11 @@ def active_runs() -> list[dict[str, Any]]:
 
 @app.post("/api/live/reset")
 def reset_live_all(request: Request, p: Pipeline = P) -> dict[str, Any]:
+    """Admin reset: clear live hub history, reset sequence counter, release all pending containments and unpause all agents."""
     from app import auth
     who = getattr(request.state, "principal", None)
     if auth.enabled() and (who is None or who.role != "admin"):
         raise HTTPException(403, "Resetting all swarm telemetry and containments requires admin role.")
-    """Operator reset: clear live hub history, reset sequence counter, release all pending containments and unpause all agents."""
-    import itertools
     from app.services.live_hub import HUB, ACTIVE_GUARDS, ACTIVE_STREAMS
     from app.services import review
 
@@ -225,13 +224,15 @@ def reset_live_all(request: Request, p: Pipeline = P) -> dict[str, Any]:
         except Exception:
             pass
 
-    # 3. Clear LiveHub history and reset sequence
+    # 3. Clear LiveHub history. The sequence keeps counting: clients resume "after the last seq they saw", so
+    #    restarting it would make them silently drop every new message.
     with HUB._lock:
         HUB.history.clear()
-        HUB._seq = itertools.count(1)
 
-    # 4. Announce reset on the live stream
+    # 4. Announce reset to connected clients only; it is not replayed to clients that connect later.
     HUB.publish("reset", {"message": "All telemetry, containment, and agent states have been reset by operator", "released_count": released_count})
+    with HUB._lock:
+        HUB.history.clear()
 
     return {
         "status": "ok",

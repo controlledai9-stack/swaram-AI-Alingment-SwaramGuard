@@ -11,15 +11,17 @@ import { ArrowRight, ShieldCheck, ShieldAlert, Play, Check } from "lucide-react"
 export function OverviewPage() {
   const { selectedRunId, selectRun, refreshRuns } = useAppState();
   const alertsData = useRunData(api.alerts, selectedRunId);
-  const responsesData = useRunData(api.responses, selectedRunId);
   const agentsData = useRunData(api.agents, selectedRunId);
   const graphData = useRunData(api.graph, selectedRunId);
-  const reviewsData = useRunData(() => api.reviews("pending"), "pending-reviews");
+  // Everything on the Dashboard is about the selected run, including its reviews.
+  const reviewsData = useRunData((runId) => api.reviews(undefined, runId), selectedRunId);
+  const eventsData = useRunData(api.normalizedEvents, selectedRunId);
 
   const alerts = alertsData.data ?? [];
-  const responses = responsesData.data ?? [];
   const agents = agentsData.data ?? [];
-  const pendingReviews = reviewsData.data ?? [];
+  const runReviews = reviewsData.data ?? [];
+  const pendingReviews = runReviews.filter((r) => r.status === "pending");
+  const events = eventsData.data ?? [];
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [startingDemo, setStartingDemo] = useState(false);
@@ -48,12 +50,19 @@ export function OverviewPage() {
   const highCount = alerts.filter((a) => a.severity === "high").length;
   const medCount = alerts.filter((a) => a.severity === "medium").length;
 
-  // Metric 1: Stopped before it ran (actions denied strictly by pre-execution policy gate)
-  const stoppedBeforeRanCount = responses.filter(
-    (r) => r.mode === "enforced" && (r.outcome === "blocked" || r.decision === "block")
-  ).length;
+  // Metric 1: Stopped before it ran = actions the gate actually refused in this run.
+  const stoppedBeforeRanCount = events.filter((e) => e.status === "denied").length;
 
   const flaggedAgentsCount = new Set(alerts.flatMap((alert) => alert.agent_ids ?? [])).size;
+  // Completed events linked to high-severity alerts need review; the alert alone does not prove harm.
+  const flaggedCompletedActionCount = useMemo(() => {
+    const ids = new Set(alerts.filter((a) => a.severity === "high" || a.severity === "critical").flatMap((a) => a.event_ids ?? []));
+    return events.filter(
+      (e) => ids.has(e.event_id) && e.status === "success" &&
+        ["data_transfer", "resource_access", "tool_call"].includes(e.event_type)
+    ).length;
+  }, [alerts, events]);
+  const untrustedRead = events.some((e) => Boolean((e.payload as Record<string, unknown> | undefined)?.untrusted));
 
   // Metric 4: Can't check (SG-030 low-severity claims where monitor lost events)
   const cantCheckCount = alerts.filter(
@@ -65,17 +74,32 @@ export function OverviewPage() {
         a.reason?.toLowerCase().includes("lost events"))
   ).length;
 
+  // Incident sequence, built from what actually happened in this run (never a fixed story).
+  const timeline = useMemo(() => {
+    const steps: { label: string; tone: string }[] = [];
+    const red = "bg-rose-500/10 text-rose-700 border-rose-300";
+    const amber = "bg-amber-500/10 text-amber-700 border-amber-300";
+    const blue = "bg-[var(--accent)]/10 text-[var(--accent)] border-[var(--accent)]/30";
+    const grey = "bg-neutral-100 text-neutral-800 border-neutral-300";
+    if (untrustedRead) steps.push({ label: "Untrusted content read", tone: red });
+    if (topAlert) steps.push({ label: `Detected: ${topAlert.rule_name}`, tone: amber });
+    if (stoppedBeforeRanCount) steps.push({ label: `${stoppedBeforeRanCount} action${stoppedBeforeRanCount === 1 ? "" : "s"} stopped before running`, tone: blue });
+    if (flaggedCompletedActionCount) steps.push({ label: `${flaggedCompletedActionCount} linked high-risk action${flaggedCompletedActionCount === 1 ? "" : "s"} completed`, tone: red });
+    if (pendingReviews.length) steps.push({ label: `${pendingReviews.length} waiting for a human decision`, tone: grey });
+    return steps;
+  }, [untrustedRead, topAlert, stoppedBeforeRanCount, flaggedCompletedActionCount, pendingReviews.length]);
+
   // Loading and selection states
   const isNoRun = !selectedRunId;
   const isCleanRun = !isNoRun && totalIncidents === 0;
   const isThreatRun = !isNoRun && totalIncidents > 0;
 
-  // Start live demo handler (worm scenario)
+  // Start live demo handler (scripted leak chain: detection, containment and a decision, no model needed)
   async function handleStartDemo() {
     setStartingDemo(true);
     try {
       const r = await api.startRun({
-        scenario_id: "worm_impersonation",
+        scenario_id: "coordinated_leakage",
         agent_count: 5,
         seed: Math.floor(Math.random() * 1000),
         gateway_mode: "monitor",
@@ -113,8 +137,8 @@ export function OverviewPage() {
     if (rule === "SG-028") {
       return "Malicious prompt injection detected inside ingested tool output.";
     }
-    if (rule === "SG-030") {
-      return "Agent claimed to call an approved API, but actually contacted an unverified destination.";
+    if (rule === "SG-030") {  // the reason already says which claim was false and how
+      return topAlert.reason || "An agent's report of its own actions doesn't match what was recorded.";
     }
     return topAlert.reason || "Suspicious behavior detected outside declared safety policies.";
   }, [topAlert]);
@@ -157,7 +181,7 @@ export function OverviewPage() {
         </div>
       )}
 
-      {/* 1. Verdict Banner: "X incidents · Y agents stopped · 0 harmful actions executed" */}
+      {/* 1. Verdict Banner: findings and affected agents from the selected run */}
       {!isNoRun && (
         <div
           className={`rounded-[var(--r-tile)] card p-8 shadow-[var(--shadow-1)] border transition-all ${
@@ -194,7 +218,9 @@ export function OverviewPage() {
               <p className="mt-2 text-[15px] text-[var(--text-2)] leading-relaxed">
                 {isCleanRun
                   ? `No incidents were recorded for run ${selectedRunId}. A clean result does not prove that every action was safe.`
-                  : `Review the evidence and response recorded for run ${selectedRunId}.`}
+                  : flaggedCompletedActionCount === 0
+                  ? `No linked high-risk action is recorded as completed in run ${selectedRunId}. Review the evidence and response for context.`
+                  : `${flaggedCompletedActionCount} linked high-risk action${flaggedCompletedActionCount === 1 ? " was" : "s were"} recorded as completed. Review the evidence and response.`}
               </p>
             </div>
 
@@ -294,6 +320,23 @@ export function OverviewPage() {
               alertEventIds={alertEventIds}
               height={440}
             />
+          </div>
+        </div>
+      )}
+
+      {/* 5. Attack Timeline Strip (Strictly Plain English) */}
+      {!isNoRun && isThreatRun && (
+        <div className="rounded-[var(--r-card)] card p-5 border border-[var(--hairline)] shadow-[var(--shadow-1)]">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] block mb-3">
+            Incident Sequence
+          </span>
+          <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-[var(--text)]">
+            {timeline.map((step, i) => (
+              <span key={step.label} className="flex items-center gap-2">
+                {i > 0 && <span className="text-[var(--text-3)]">&rarr;</span>}
+                <span className={`rounded-full px-3 py-1 border ${step.tone}`}>{step.label}</span>
+              </span>
+            ))}
           </div>
         </div>
       )}

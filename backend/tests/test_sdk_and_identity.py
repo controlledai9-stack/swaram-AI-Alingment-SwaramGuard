@@ -64,6 +64,37 @@ def test_langchain_handler_gates_tools_and_sends_untrusted_output_for_scanning(e
         h.on_tool_start({"name": "web_search"}, "more", run_id=2)
 
 
+@pytest.mark.parametrize("args", [
+    {"inputs": {"resource": "data/public", "destination": "external:attacker-site"}},  # langchain-core passes inputs
+    {"input_str": "{'resource': 'data/public', 'destination': 'external:attacker-site'}"},  # older: a Python repr
+])
+def test_langchain_upload_is_checked_against_its_destination(env, args):
+    """SG-LC-001 (found by the real-LangChain tests): an upload's destination must reach the gate, so an upload to an
+    unapproved site is stopped before the tool runs, while the approved partner is allowed."""
+    sg, _, pipeline = env
+    s = sg.open_session("lc-dest", AGENTS)
+    h = SwarmGuardCallbackHandler(s, "a1")
+    input_str = args.get("input_str", str(args.get("inputs")))
+    with pytest.raises(Blocked):
+        h.on_tool_start({"name": "upload"}, input_str, run_id=1, inputs=args.get("inputs"))
+    denied = [e for e in pipeline.raw_events(s.run_id) if e.status == "denied"][-1]
+    assert (denied.event_type, denied.action, denied.target) == ("data_transfer", "upload", "external:attacker-site")
+    ok = {"resource": "data/public", "destination": "external:approved-partner-api"}
+    other = SwarmGuardCallbackHandler(s, "r1")  # a1's egress is now held after the attempt; another agent uploads
+    other.on_tool_start({"name": "upload"}, str(ok), run_id=2, inputs=ok)  # approved destination: allowed
+    other.on_tool_end("uploaded", run_id=2)
+    sent = [e for e in pipeline.raw_events(s.run_id) if e.status == "success" and e.event_type == "data_transfer"]
+    assert sent and sent[-1].target == "external:approved-partner-api" and sent[-1].resource == "data/public"
+
+
+def test_langchain_read_of_a_restricted_resource_is_checked(env):
+    sg, _, pipeline = env
+    s = sg.open_session("lc-read", AGENTS)
+    h = SwarmGuardCallbackHandler(s, "r1")  # researcher: no permission for customer PII
+    with pytest.raises(Blocked):
+        h.on_tool_start({"name": "read_file"}, "", run_id=1, inputs={"path": "data/customer_pii"})
+
+
 def test_proxy_url_carries_the_agent_identity(env):
     sg, _, _ = env
     s = sg.open_session("p", AGENTS, require_agent_identity=True)

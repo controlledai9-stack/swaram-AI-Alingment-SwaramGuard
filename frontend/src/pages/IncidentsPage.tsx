@@ -70,7 +70,7 @@ export function IncidentsPage({
   const agentsData = useRunData(api.agents, selectedRunId);
 
   // Reviews data (real-time stream subscription)
-  const reviewsData = useRunData(() => api.reviews(), "reviews", [reviewTick]);
+  const reviewsData = useRunData((runId) => api.reviews(undefined, runId), selectedRunId, [reviewTick]);
   const live = useLiveStream(undefined, 50);
   const reviewMsgs = live.messages.filter((m) => m.type === "review");
   const lastReview = reviewMsgs[reviewMsgs.length - 1]?.seq;

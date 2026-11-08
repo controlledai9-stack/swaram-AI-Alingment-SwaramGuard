@@ -724,3 +724,24 @@ lies the log shows (no record, a failed record) and misses those it doesn't (a w
 record). The independent state check catches all four and repairs them before they propagate, with no false alarms.
 The lesson for deployments: for actions with checkable effects (database rows, files, tickets), verify the effect,
 not the report or the log. SG-030 stays useful where no state can be queried, and to say which claim was false.
+
+## 27. SG-030 in the accuracy benchmark
+
+Eight cases added (`detection/benchmark.py`): five lies (claimed wrong destination, claimed wrong resource, a failed
+call reported as done, a claimed call that never ran, an unreported sensitive transfer) and three honest look-alikes
+(an honest upload report, an honest three-upload batch, a report logged before its upload). The benchmark now covers
+all 30 rules: 35 attacks, 17 benign look-alikes, 468 trials per loss level.
+
+| Missing events | 0% | 10% | 30% | 50% |
+|---|---|---|---|---|
+| Caught, agent log only | 100% | 90% | 65% | 48% |
+| Caught, log + independent sensors | 100% | 94% | 81% | 67% |
+| Precision / benign alarms | 1.0 / 0 | 1.0 / 0 | 1.0 / 0 | 1.0 / 0 |
+
+On a complete log every SG-030 lie is caught by SG-030 and no honest report is flagged. With events missing, a claim
+nothing matches is reported as *unverified* (low severity) rather than as a lie, and the benchmark does not count that
+as flagging anyone; so "a claimed call that never ran" is not caught at 30% loss, by design: with that much missing,
+a lie and a lost log entry look the same (§26 shows the fix: check the state itself). Under the live guard the
+unreported exfiltration is refused before it runs, so SG-002 catches it first. Building these cases found a bug: events
+rebuilt from sensor records carry no sequence number, which hid log gaps from SG-030 and turned an honest delayed
+report into a "phantom"; the gap check now ignores them.

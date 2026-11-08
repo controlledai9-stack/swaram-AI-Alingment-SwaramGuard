@@ -131,4 +131,34 @@ def test_accuracy_floors(trained):
     assert clean["threat_detection_rate"] == 1.0 and clean["right_rule_rate"] == 1.0
     assert clean["benign_alarm_rate"] == 0.0 and gappy["benign_alarm_rate"] == 0.0
     assert gappy["precision"] == 1.0
-    assert gappy["detection_given_evidence"] >= 0.8
+    # SG-030 deliberately won't call a claim a lie when the log has gaps (it says "unverified" instead), so its cases
+    # are held to their own expectation (tests below), and this floor guards every other rule as before.
+    others = [c for c in ALL_CASES if "SG-030" not in c.expect_rules]
+    rest = run_benchmark(trained, run_rules, drop_rates=(0.3,), agent_counts=(5, 10), seeds=range(1, 3), cases=others)
+    assert rest["rows"][0]["detection_given_evidence"] >= 0.8
+
+
+# ------------------------------------------------------------ SG-030 benchmark cases
+SG030_ATTACKS = [c for c in ATTACKS if "SG-030" in c.expect_rules]
+SG030_BENIGN = [c for c in BENIGN if c.threat == "C10" and c.name != "honest report"]
+
+
+@pytest.mark.parametrize("case", SG030_ATTACKS + SG030_BENIGN, ids=lambda c: c.name)
+def test_sg030_cases_on_a_complete_log(case, trained):
+    for n in (5, 20):
+        trial = build_trial(case, n, 1, 0.0)
+        s = score_trial(trial, run_rules(trial.events[0].run_id, trial.events, trial.agents, trained))
+        assert s.detected == 1, case.name  # attack caught by SG-030 on the culprit / honest agent left alone
+        assert s.fp == 0
+        if not case.benign:
+            assert s.right_rule == 1
+
+
+def test_lost_log_makes_a_phantom_claim_unverified_not_an_accusation(trained):
+    """With events missing, a claim nothing matches can't be called a lie: SG-030 says 'unverified' (low), which
+    the benchmark does not count as flagging anyone."""
+    case = next(c for c in SG030_ATTACKS if c.name == "claimed call that never ran")
+    trial = build_trial(case, 5, 1, 0.3)
+    alerts = run_rules(trial.events[0].run_id, trial.events, trial.agents, trained)
+    sg030 = [a for a in alerts if a.rule_id == "SG-030" and trial.slot_agents["A"] in a.agent_ids]
+    assert all(a.severity == "low" and "unverified" in a.reason for a in sg030)
