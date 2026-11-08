@@ -13,3 +13,7 @@ datasets/
 /app/
 
 swaram-frontend-bundle/
+
+# Local env files (Firebase web config, secrets)
+.env.local
+.env.*.local

@@ -251,6 +251,20 @@ class Pipeline:
         self.store.put("runs", run.run_id, _dump(run))
         return run
 
+    RUN_DATA = ("agents", "raw_events", "normalized_events", "alerts", "response_actions", "evaluations", "reviews")
+
+    def delete_run(self, run_id: str) -> dict[str, int]:
+        """Delete a run and everything recorded for it (History 'delete'). Refused while it is still running."""
+        from app.identity import RUN_OWNERS
+
+        self.get_run(run_id)  # NotFound if it doesn't exist
+        if run_id in ACTIVE_RUNS:
+            raise ValueError(f"run {run_id} is still running; stop it first")
+        removed = {col: self.store.delete_run_docs(col, run_id) for col in self.RUN_DATA}
+        removed["runs"] = self.store.delete_run_docs("runs", run_id)
+        RUN_OWNERS.pop(run_id, None)
+        return removed
+
     def _replace(self, collection: str, run_id: str, docs: list[tuple[str, dict]]) -> None:
         self.store.delete_run_docs(collection, run_id)
         if docs:

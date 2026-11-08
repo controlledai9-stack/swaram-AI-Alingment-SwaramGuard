@@ -136,3 +136,13 @@ def test_background_run_keeps_its_owner_and_name(client):
     run = client.get(f"/api/runs/{run_id}", headers=H("ana@example.com")).json()
     assert run["owner"] == "ana@example.com" and run["name"] == "bg"
     assert client.get(f"/api/runs/{run_id}", headers=H("ben@example.com")).status_code == 404
+
+
+def test_delete_run_removes_it_and_only_the_owner_can(client):
+    a = _run(client, "ana@example.com", "to delete")
+    assert client.delete(f"/api/runs/{a}", headers=H("ben@example.com")).status_code == 404  # not Ben's
+    r = client.delete(f"/api/runs/{a}", headers=H("ana@example.com"))
+    assert r.status_code == 200 and r.json()["deleted"]["runs"] == 1 and r.json()["deleted"]["raw_events"] > 0
+    assert client.get(f"/api/runs/{a}", headers=H("ana@example.com")).status_code == 404
+    assert client.get(f"/api/runs/{a}/alerts", headers=H("ana@example.com")).json() in ([], {"detail": f"run {a} not found"})
+    assert client.get("/api/runs", headers=H("ana@example.com")).json() == []

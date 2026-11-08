@@ -39,6 +39,8 @@ const put = <T>(path: string, body: unknown) => request<T>(path, { method: "PUT"
 
 export const api = {
   health: () => request<{ ok: boolean; storage: string; workspace: string; auth?: "on" | "off" }>("/health"),
+  deleteRun: (runId: string) =>
+    request<{ run_id: string; deleted: Record<string, number> }>(`/runs/${runId}`, { method: "DELETE" }),
   whoami: () => request<{ auth: boolean; name: string | null; role: string; display_name?: string | null;
     picture?: string | null; via?: string | null }>("/whoami"),
   meta: () => request<Meta>("/meta"),

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { History, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Plus, Search, X } from "lucide-react";
+import { History, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Plus, Search, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { firebaseEnabled, signOut, useFirebaseUser } from "../lib/firebase";
 import { useAppState, useRunData } from "../state";
@@ -107,8 +107,26 @@ function Account() {
 
 /** ChatGPT-style history: every saved run, newest first. Opening one switches every page to that run. */
 export function HistorySidebar() {
-  const { runs, selectedRunId, selectRun } = useAppState();
+  const { runs, selectedRunId, selectRun, refreshRuns } = useAppState();
   const [open, setOpen] = useState(true);
+  const [confirming, setConfirming] = useState<Run | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function remove(r: Run) {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteRun(r.run_id);
+      if (r.run_id === selectedRunId) selectRun(null);
+      setConfirming(null);
+      await refreshRuns();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
   const [query, setQuery] = useState("");
   const [howTo, setHowTo] = useState(false);
 
@@ -165,17 +183,25 @@ export function HistorySidebar() {
               const active = r.run_id === selectedRunId;
               const alerts = r.counts?.alerts ?? 0;
               return (
-                <button key={r.run_id} type="button" onClick={() => selectRun(r.run_id)} aria-current={active ? "true" : undefined}
-                        className={`block w-full rounded-lg px-2 py-1.5 text-left transition-colors ${
-                          active ? "bg-[var(--accent)]/10" : "hover:bg-[var(--hairline-subtle)]"}`}>
-                  <div className={`truncate text-[13px] ${active ? "font-medium text-[var(--accent)]" : "text-[var(--text)]"}`}>{title(r)}</div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-3)]">
-                    <span>{when(r.created_at)}</span>
-                    <span>·</span>
-                    <span>{r.agent_count} agents</span>
-                    {alerts > 0 && (<><span>·</span><span className="text-[var(--crit)]">{alerts} incident{alerts === 1 ? "" : "s"}</span></>)}
-                  </div>
-                </button>
+                <div key={r.run_id} className="group relative">
+                  <button type="button" onClick={() => selectRun(r.run_id)} aria-current={active ? "true" : undefined}
+                          className={`block w-full rounded-lg py-1.5 pl-2 pr-8 text-left transition-colors ${
+                            active ? "bg-[#E3E3E8] shadow-[inset_3px_0_0_var(--accent)]" : "hover:bg-[var(--hairline-subtle)]"}`}>
+                    <div className={`truncate text-[13px] ${active ? "font-semibold text-[var(--text)]" : "text-[var(--text)]"}`}>{title(r)}</div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-3)]">
+                      <span>{when(r.created_at)}</span>
+                      <span>·</span>
+                      <span>{r.agent_count} agents</span>
+                      {alerts > 0 && (<><span>·</span><span className="text-[var(--crit)]">{alerts} incident{alerts === 1 ? "" : "s"}</span></>)}
+                    </div>
+                  </button>
+                  <button type="button" onClick={() => { setDeleteError(null); setConfirming(r); }}
+                          aria-label={`Delete ${title(r)}`} title="Delete run"
+                          className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--text-3)] hover:bg-white hover:text-[var(--crit)] ${
+                            active ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100"}`}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -191,6 +217,28 @@ export function HistorySidebar() {
         <Account />
       </div>
       {howTo && <HowToUse onClose={() => setHowTo(false)} />}
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" onClick={() => !deleting && setConfirming(null)}>
+          <div className="w-full max-w-[400px] rounded-[var(--r-card)] border border-[var(--hairline)] bg-[var(--card)] p-6 shadow-[var(--shadow-1)]"
+               onClick={(e) => e.stopPropagation()} role="alertdialog" aria-label="Delete run">
+            <h2 className="text-[17px] font-semibold text-[var(--text)]">Delete "{title(confirming)}"?</h2>
+            <p className="mt-2 text-[14px] text-[var(--text-2)]">
+              This permanently deletes the run and all its events, incidents, responses and reviews. It can't be undone.
+            </p>
+            {deleteError && <p className="mt-3 text-[13px] text-[var(--crit)]">{deleteError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirming(null)} disabled={deleting}
+                      className="rounded-full border border-[var(--hairline)] px-4 py-1.5 text-[14px] text-[var(--text)] hover:bg-[var(--hairline-subtle)]">
+                Cancel
+              </button>
+              <button type="button" onClick={() => remove(confirming)} disabled={deleting}
+                      className="rounded-full bg-[var(--crit)] px-4 py-1.5 text-[14px] font-medium text-white disabled:opacity-60">
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

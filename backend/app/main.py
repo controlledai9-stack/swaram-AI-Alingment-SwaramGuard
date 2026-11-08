@@ -164,6 +164,12 @@ def get_run(run_id: str, p: Pipeline = P):
     return p.get_run(run_id)
 
 
+@app.delete("/api/runs/{run_id}")
+def delete_run(run_id: str, p: Pipeline = P) -> dict[str, Any]:
+    """Permanently delete a run and its events, incidents, responses and reviews (signed-in people: own runs only)."""
+    return {"run_id": run_id, "deleted": p.delete_run(run_id)}
+
+
 @app.get("/api/runs/{run_id}/agents")
 def run_agents(run_id: str, p: Pipeline = P):
     return p.agents(run_id)
