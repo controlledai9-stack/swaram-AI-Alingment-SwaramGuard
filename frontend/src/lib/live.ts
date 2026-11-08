@@ -1,6 +1,7 @@
 /** Client for the live stream (WebSocket /api/live). See docs/live-stream.md for every message type. */
 import { useEffect, useRef, useState } from "react";
 import { currentCredential } from "./apiKey";
+import { apiOrigin } from "./apiOrigin";
 
 export type LiveType =
   | "hello"
@@ -27,13 +28,15 @@ export interface LiveMessage<T = Record<string, unknown>> {
 }
 
 export function liveUrl(runId?: string | null, since = 0): string {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const url = new URL("/api/live", apiOrigin || location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const q = new URLSearchParams();
   if (runId) q.set("run_id", runId);
   if (since) q.set("since", String(since));
   const key = currentCredential();
   if (key) q.set("key", key); // browsers can't send headers on a WebSocket
-  return `${proto}://${location.host}/api/live${q.toString() ? `?${q}` : ""}`;
+  url.search = q.toString();
+  return url.href;
 }
 
 /** Subscribe to the live stream; reconnects automatically and resumes from the last message seen. */

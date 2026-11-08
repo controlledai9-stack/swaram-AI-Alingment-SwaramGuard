@@ -1,4 +1,5 @@
 import { AUTH_REQUIRED, authHeaders } from "./lib/apiKey";
+import { apiOrigin } from "./lib/apiOrigin";
 import type {
   Agent, AgentAssessment, Alert, AuditItem, BaselineSummary, GeminiQuotaStatus, ReviewItem, BenchmarkResult, LiveReport, ReplayCase, CollectionResult, Dashboard, DetectionResult, DetectionRule, EvaluationResult, Meta, ModuleInfo,
   NormalizedEvent, RawEvent, ResponseAction, ResponsePolicy, ResponseResult, Run, ScenarioConfig, SimulationResult,
@@ -14,12 +15,12 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(`${apiOrigin}/api${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
     });
   } catch {
-    throw new ApiError(0, "Cannot reach the SwaramGuard API. Is the backend running on port 8000?");
+    throw new ApiError(0, "Cannot reach the SwaramGuard API. Check that the backend is running.");
   }
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
