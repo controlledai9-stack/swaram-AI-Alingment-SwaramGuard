@@ -4,6 +4,9 @@ import os
 
 os.environ["GEMINI_QUOTA_FILE"] = "off"  # tests must never touch the real Gemini usage file
 os.environ["SWARMGUARD_API_KEYS"] = ""  # auth off unless a test turns it on (a developer's .env may set keys)
+# Same for Google sign-in and the key pool: tests never inherit a developer's Firebase project or Gemini keys.
+for _var in ("SWARMGUARD_FIREBASE_AUTH_PROJECT", "SWARMGUARD_ALLOWED_EMAILS", "SWARMGUARD_ADMIN_EMAILS", "GEMINI_API_KEYS"):
+    os.environ[_var] = ""
 
 import json
 from datetime import datetime, timezone

@@ -280,7 +280,119 @@ class GeminiQuotaTracker:
             }
 
 
-GLOBAL_QUOTA_TRACKER = GeminiQuotaTracker()
+
+def gemini_keys() -> list[str]:
+    """Every configured Gemini key: GEMINI_API_KEYS (comma or newline separated) plus GEMINI_API_KEY, in order."""
+    from app.config import _load_dotenv
+
+    _load_dotenv()  # this runs at import time, before anything else may have read backend/.env
+    raw = os.getenv("GEMINI_API_KEYS", "") + "," + os.getenv("GEMINI_API_KEY", "")
+    out: list[str] = []
+    for k in raw.replace("\n", ",").split(","):
+        k = k.strip()
+        if k and k not in out:
+            out.append(k)
+    return out
+
+
+def _fingerprint(key: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(key.encode()).hexdigest()[:8]  # never the key itself, in files or the UI
+
+
+class GeminiKeyPool:
+    """Several Gemini keys used as one quota: each key has its own daily and per-minute tracker (persisted
+    separately), every call goes to a key with quota left, and a key Google rate-limits is skipped until it frees.
+
+    Google's free quota is per Cloud *project*: keys from the same project share one quota, so only keys from
+    different projects add capacity. The pool behaves exactly like a GeminiQuotaTracker to the rest of the app.
+    """
+
+    def __init__(self, keys: list[str], state_file: str | Path | None = None) -> None:
+        base = state_file if state_file is not None else os.getenv("GEMINI_QUOTA_FILE", str(QUOTA_FILE))
+        self.keys = list(keys)
+        self.trackers = []
+        for k in self.keys:
+            f = "off" if str(base).lower() in ("", "off") else f"{Path(base).with_suffix('')}.{_fingerprint(k)}.json"
+            self.trackers.append(GeminiQuotaTracker(state_file=f))
+        self._next = 0
+        self._lock = threading.Lock()
+        self._local = threading.local()
+
+    def _cur(self) -> int:  # which key the calling thread is using right now
+        return getattr(self._local, "i", 0)
+
+    def current_key(self) -> str:
+        return self.keys[self._cur()]
+
+    def can_call(self) -> tuple[bool, str | None]:
+        with self._lock:
+            start = self._next
+            self._next = (self._next + 1) % len(self.trackers)  # spread calls across keys (per-minute limits)
+        first_reason = None
+        for off in range(len(self.trackers)):
+            i = (start + off) % len(self.trackers)
+            ok, reason = self.trackers[i].can_call()
+            if ok:
+                self._local.i = i
+                return True, None
+            first_reason = first_reason or reason
+        return False, f"all {len(self.trackers)} Gemini keys are limited ({first_reason})"
+
+    def switch_key(self) -> bool:
+        """After a 429 on the current key: move this thread to another key that can call now, if any."""
+        cur = self._cur()
+        for off in range(1, len(self.trackers)):
+            i = (cur + off) % len(self.trackers)
+            if self.trackers[i].can_call()[0]:
+                self._local.i = i
+                return True
+        return False
+
+    def remaining(self) -> int:
+        return sum(t.remaining() for t in self.trackers)
+
+    def seconds_until_slot(self) -> float | None:
+        waits = [w for w in (t.seconds_until_slot() for t in self.trackers) if w is not None]
+        return min(waits) if waits else None
+
+    def wait_for_slot(self, max_wait: float) -> None:
+        wait = self.seconds_until_slot()
+        if wait and wait <= max_wait:
+            logger.info("Gemini rate limit on every key: waiting %.1fs for the next free slot", wait)
+            time.sleep(wait + 0.05)
+
+    def record_call(self) -> None:
+        self.trackers[self._cur()].record_call()
+
+    def record_429(self, cooldown_seconds: float = 60.0, *, daily: bool = False) -> None:
+        self.trackers[self._cur()].record_429(cooldown_seconds, daily=daily)
+
+    def reset(self) -> None:
+        for t in self.trackers:
+            t.reset()
+
+    def status(self) -> dict[str, Any]:
+        per = [t.status() for t in self.trackers]
+        out = dict(per[0])
+        for k in ("calls_today", "daily_limit", "remaining_today", "rpm_limit", "calls_last_minute", "daily_budget"):
+            if k in out:
+                out[k] = sum(int(p.get(k, 0)) for p in per)
+        live = [p for p in per if not p["exhausted"]]
+        out["exhausted"] = not live
+        out["resets_in_s"] = min(p["resets_in_s"] for p in per)
+        out["resets_at"] = min(p["resets_at"] for p in per)
+        out["blocked_reason"] = None if live else f"All {len(per)} keys are used up for today"
+        out["keys"] = len(per)
+        out["keys_available"] = len(live)
+        out["per_key"] = [{"key": _fingerprint(k), "calls_today": p["calls_today"],
+                           "remaining_today": p["remaining_today"], "exhausted": p["exhausted"]}
+                          for k, p in zip(self.keys, per)]
+        return out
+
+
+GLOBAL_QUOTA_TRACKER = GeminiKeyPool(gemini_keys()) if len(gemini_keys()) > 1 else GeminiQuotaTracker()
 
 
 def get_quota_tracker() -> GeminiQuotaTracker:
@@ -318,7 +430,7 @@ class GeminiAdapter:
 
     ):
 
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.api_key = api_key or (gemini_keys() or [None])[0]
 
         if not self.api_key:
 
@@ -345,14 +457,26 @@ class GeminiAdapter:
         self._fallback = DeterministicAdapter()
 
         self._client = client
+        self._injected_client = client  # tests pass a fake client; it is used for every key
+        self._clients: dict[str, Any] = {}
+        self._explicit_key = api_key  # a key passed in directly is always used, never rotated
 
         self.last_finish_reason: str | None = None
 
         self.last_was_truncated: bool = False
 
 
+    def _active_key(self) -> str:
+        """The key the quota pool picked for this call (one key, or a key passed in: the adapter's own)."""
+        pick = getattr(self.quota_tracker, "current_key", None)
+        return pick() if pick and self._explicit_key is None else self.api_key
+
     def _get_client(self) -> genai.Client:
 
+        if self._injected_client is not None:
+            return self._injected_client
+        key = self._active_key()
+        self._client = self._clients.get(key)
         if self._client is None:
 
             # types.HttpOptions expects timeout in milliseconds
@@ -371,9 +495,9 @@ class GeminiAdapter:
 
             )
 
-            self._client = genai.Client(
+            self._client = self._clients[key] = genai.Client(
 
-                api_key=self.api_key,
+                api_key=key,
 
                 http_options=types.HttpOptions(
 
@@ -587,6 +711,11 @@ class GeminiAdapter:
 
                     self.quota_tracker.record_429(_wait or 60.0, daily="per day" in str(err_msg).lower())
 
+                    if (attempt < self.max_retries and self._explicit_key is None
+                            and getattr(self.quota_tracker, "switch_key", lambda: False)()):
+                        logger.info("Gemini key rate-limited; retrying on another key")
+                        continue
+
                 else:
 
                     logger.warning("Gemini APIError [%s] for model '%s' (attempt %d/%d): %s", last_code, self.model, attempt, self.max_retries, err_msg)
@@ -627,6 +756,11 @@ class GeminiAdapter:
                     _wait = retry_after_seconds(err_str)
 
                     self.quota_tracker.record_429(_wait or 60.0, daily="per day" in err_str.lower())
+
+                    if (attempt < self.max_retries and self._explicit_key is None
+                            and getattr(self.quota_tracker, "switch_key", lambda: False)()):
+                        logger.info("Gemini key rate-limited; retrying on another key")
+                        continue
 
                 else:
 

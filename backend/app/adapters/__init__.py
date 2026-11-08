@@ -13,7 +13,7 @@ from app.config import get_settings
 
 def available_adapters() -> list[dict[str, object]]:
     s = get_settings()
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEYS", "").strip(" ,\n")
     gemini_model = os.getenv("GEMINI_MODEL") or s.gemini_model
     return [
         {"id": "deterministic", "label": "Deterministic templates", "available": True},
