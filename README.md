@@ -1,7 +1,7 @@
 # SwarmGuard
 
 **Swarm Alignment Hackathon (Apart Research, 6–8 Nov 2026), Track 4: Multi-Agent Oversight and Control.**
-Live demo: [swarmguard.web.app](https://swarmguard.web.app) · Video (3:38): [youtu.be/x8sye3pCEG0](https://youtu.be/x8sye3pCEG0)
+Live demo: [swaramguard.web.app](https://swaramguard.web.app) · Video (3:38): [youtu.be/x8sye3pCEG0](https://youtu.be/x8sye3pCEG0)
 
 ## Prior work (pre-existing code) vs. hackathon work
 
