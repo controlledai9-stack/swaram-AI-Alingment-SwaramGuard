@@ -1,5 +1,28 @@
 # SwarmGuard
 
+**Swarm Alignment Hackathon (Apart Research, 6–8 Nov 2026), Track 4: Multi-Agent Oversight and Control.**
+Live demo: [swaramguard.web.app](https://swaramguard.web.app)
+
+## Prior work (pre-existing code) vs. hackathon work
+
+Per the sprint rules, pre-existing code is marked here and in the report.
+
+- **Pre-existing (built before the sprint, up to 5 Nov 2026 22:33 IST):** imported in this repository's first three
+  commits. It covers the agent simulator, event collector, detection rules SG-001 to SG-027, Bayesian risk scoring,
+  the live guard's pause and egress hold, the accuracy benchmark (then 30 attacks and 14 benign look-alikes), AI mode
+  with Gemini, the first
+  prompt-injection fuzzer, and the dashboard.
+- **Built during the sprint (from 6 Nov 2026 19:29 IST):** API keys and CI; the egress proxy; the internal-goal fuzzer;
+  the injection classifier SG-028, the covert-transfer rule SG-029 and the claim check SG-030; the pre-execution policy
+  check; the MCP gateway; the Python SDK and LangChain handler; scoped agent identity tokens; the swarm circuit breaker;
+  the independent state check (`backend/app/services/claim_workflow.py`); all outside-data analyses (Swarm Traces,
+  collusion.wiki, AgentDojo); the extended 30-rule benchmark; real-library LangChain and MCP tests; and the dashboard
+  rebuild with run history, Google sign-in and per-user Gemini keys.
+
+The commit timestamps in the original team repository (`controlledai9-stack/swaram`) show the split.
+
+## Overview
+
 A small web simulator for a multi-agent security pipeline: agents act, events are
 collected and normalized, threats are detected with evidence, responses are decided
 (honestly: simulated vs. enforced), and results are evaluated against labeled
