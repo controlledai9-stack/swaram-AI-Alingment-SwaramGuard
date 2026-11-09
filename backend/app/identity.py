@@ -11,6 +11,14 @@ from contextvars import ContextVar
 from typing import Any
 
 current_user: ContextVar[str | None] = ContextVar("swarmguard_user", default=None)
+# A person's own Gemini key, sent by their browser (X-Gemini-Key) with each request. Used only for the runs they start
+# in that request (background runs inherit it), never stored, never logged, and not counted against the shared quota.
+user_gemini_key: ContextVar[str | None] = ContextVar("swarmguard_user_gemini_key", default=None)
+
+
+def gemini_key_from(headers) -> str | None:
+    key = (headers.get("x-gemini-key") or "").strip()
+    return key if 20 <= len(key) <= 200 and key.isprintable() and " " not in key else None
 RUN_OWNERS: dict[str, str | None] = {}  # run_id -> owner, for runs still in flight (not yet saved) and as a cache
 
 

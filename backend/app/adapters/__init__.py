@@ -52,7 +52,15 @@ def get_adapter(name: str) -> AgentAdapter:
     if name == "gemini":
         from app.adapters.gemini_adapter import GeminiAdapter
 
+        from app.identity import user_gemini_key
+
         s = get_settings()
+        own = user_gemini_key.get()
+        if own:  # the person's own key: their quota, a private counter, never rotated into the shared pool
+            from app.adapters.gemini_adapter import GeminiQuotaTracker
+
+            return GeminiAdapter(api_key=own, model=os.getenv("GEMINI_MODEL") or s.gemini_model,
+                                 max_calls=s.llm_max_calls, quota_tracker=GeminiQuotaTracker(state_file="off"))
         return GeminiAdapter(
             model=os.getenv("GEMINI_MODEL") or s.gemini_model,
             max_calls=s.llm_max_calls,

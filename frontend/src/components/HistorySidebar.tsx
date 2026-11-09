@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { History, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Plus, Search, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronUp, History, KeyRound, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Plus, Search, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { firebaseEnabled, signOut, useFirebaseUser } from "../lib/firebase";
+import { GEMINI_KEY_CHANGED, getOwnGeminiKey, maskKey, setOwnGeminiKey } from "../lib/geminiKey";
 import { useAppState, useRunData } from "../state";
 import type { Run } from "../types";
 
@@ -57,9 +58,27 @@ function HowToUse({ onClose }: { onClose: () => void }) {
   );
 }
 
+function useOwnKey(): string {
+  const [key, setKey] = useState(getOwnGeminiKey);
+  useEffect(() => {
+    const on = () => setKey(getOwnGeminiKey());
+    window.addEventListener(GEMINI_KEY_CHANGED, on);
+    return () => window.removeEventListener(GEMINI_KEY_CHANGED, on);
+  }, []);
+  return key;
+}
+
 function Usage() {
-  const q = useRunData(() => api.geminiQuota(), "sidebar-quota");
+  const own = useOwnKey();
+  const q = useRunData(() => api.geminiQuota(), "sidebar-quota", [own]);
   const d = q.data;
+  if (own) {
+    return (
+      <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-2)]" aria-label="Gemini usage today">
+        <KeyRound size={13} /> AI runs use your own Gemini key
+      </div>
+    );
+  }
   if (!d) return null;
   if (!d.configured) return <p className="text-[12px] text-[var(--text-3)]">Gemini: not connected yet</p>;
   const used = d.exhausted ? 1 : Math.min(1, d.calls_today / Math.max(1, d.daily_limit));
@@ -76,14 +95,106 @@ function Usage() {
   );
 }
 
-function Account() {
+function OwnKeyDialog({ onClose }: { onClose: () => void }) {
+  const saved = useOwnKey();
+  const [value, setValue] = useState("");
+  const [state, setState] = useState<{ kind: "idle" | "checking" | "ok" | "error"; msg?: string }>({ kind: "idle" });
+  const candidate = value.trim();
+
+  async function test() {
+    setState({ kind: "checking" });
+    try {
+      const r = await api.checkGeminiKey(candidate);
+      setState(r.ok ? { kind: "ok", msg: "The key works." } : { kind: "error", msg: r.error ?? "Google rejected the key." });
+    } catch (e) {
+      setState({ kind: "error", msg: (e as Error).message });
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" onClick={onClose}>
+      <div className="w-full max-w-[440px] rounded-[var(--r-card)] border border-[var(--hairline)] bg-[var(--card)] p-6 shadow-[var(--shadow-1)]"
+           onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Use your own Gemini key">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-semibold text-[var(--text)]">Use your own Gemini key</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-[var(--text-3)] hover:text-[var(--text)]"><X size={18} /></button>
+        </div>
+        <p className="mt-2 text-[13px] text-[var(--text-2)]">
+          AI runs you start will use your key and your Google quota instead of the shared one. The key stays in this
+          browser and is sent only with your requests; SwaramGuard never saves it.
+          Get one at <a className="text-[var(--accent)] underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>.
+        </p>
+        {saved && (
+          <div className="mt-4 flex items-center justify-between rounded-lg bg-[var(--hairline-subtle)] px-3 py-2 text-[13px]">
+            <span className="text-[var(--text)]">Using <code className="font-mono">{maskKey(saved)}</code></span>
+            <button type="button" onClick={() => { setOwnGeminiKey(""); setState({ kind: "idle" }); }}
+                    className="text-[var(--crit)] hover:underline">Remove</button>
+          </div>
+        )}
+        <label htmlFor="own-gemini-key" className="mt-4 block text-[13px] font-medium text-[var(--text)]">
+          {saved ? "Replace with another key" : "Your Gemini API key"}
+        </label>
+        <input id="own-gemini-key" type="password" autoComplete="off" spellCheck={false} value={value}
+               onChange={(e) => { setValue(e.target.value); setState({ kind: "idle" }); }}
+               placeholder="Paste your key"
+               className="mt-1 h-10 w-full rounded-xl border border-[var(--hairline)] bg-[var(--bg)] px-3 font-mono text-[13px] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none" />
+        {state.msg && (
+          <p className={`mt-2 text-[13px] ${state.kind === "ok" ? "text-[var(--ok)]" : "text-[var(--crit)]"}`}>{state.msg}</p>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={test} disabled={candidate.length < 20 || state.kind === "checking"}
+                  className="rounded-full border border-[var(--hairline)] px-4 py-1.5 text-[14px] text-[var(--text)] hover:bg-[var(--hairline-subtle)] disabled:opacity-50">
+            {state.kind === "checking" ? "Checking…" : "Test key"}
+          </button>
+          <button type="button" disabled={candidate.length < 20}
+                  onClick={() => { setOwnGeminiKey(candidate); setValue(""); onClose(); }}
+                  className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-[14px] font-medium text-white disabled:opacity-50">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Account({ onHowTo }: { onHowTo: () => void }) {
   const user = useFirebaseUser();
   const me = useRunData(() => api.whoami(), "whoami");
+  const own = useOwnKey();
+  const [menu, setMenu] = useState(false);
+  const [keyDialog, setKeyDialog] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [menu]);
   const name = user?.displayName || me.data?.display_name || me.data?.name || "Local mode";
   const email = user?.email || (me.data?.auth ? me.data?.name : "No sign-in configured");
   const picture = user?.photoURL || me.data?.picture || null;
+  const item = "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-[var(--text)] hover:bg-[var(--hairline-subtle)]";
   return (
-    <div className="flex items-center gap-2.5">
+    <div ref={box} className="relative">
+      {menu && (
+        <div role="menu" className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--hairline)] bg-[var(--card)] p-1.5 shadow-[var(--shadow-1)]">
+          <button type="button" role="menuitem" className={item} onClick={() => { setMenu(false); setKeyDialog(true); }}>
+            <KeyRound size={15} /> {own ? "Your Gemini key" : "Use my own Gemini key"}
+          </button>
+          <button type="button" role="menuitem" className={item} onClick={() => { setMenu(false); onHowTo(); }}>
+            <PlayCircle size={15} /> How to use
+          </button>
+          {firebaseEnabled && user && (
+            <button type="button" role="menuitem" className={`${item} text-[var(--crit)]`} onClick={() => signOut()}>
+              <LogOut size={15} /> Sign out
+            </button>
+          )}
+        </div>
+      )}
+      <button type="button" onClick={() => setMenu((m) => !m)} aria-haspopup="menu" aria-expanded={menu}
+              className={`flex w-full items-center gap-2.5 rounded-lg p-1.5 text-left transition-colors hover:bg-[var(--hairline-subtle)] ${menu ? "bg-[var(--hairline-subtle)]" : ""}`}>
       {picture ? (
         <img src={picture} alt="" className="h-8 w-8 shrink-0 rounded-full" referrerPolicy="no-referrer" />
       ) : (
@@ -95,12 +206,9 @@ function Account() {
         <div className="truncate text-[13px] font-medium text-[var(--text)]">{name}</div>
         <div className="truncate text-[12px] text-[var(--text-3)]">{email}{me.data?.role && me.data.role !== "local" ? ` · ${me.data.role}` : ""}</div>
       </div>
-      {firebaseEnabled && user && (
-        <button type="button" onClick={() => signOut()} title="Sign out" aria-label="Sign out"
-                className="rounded-md p-1.5 text-[var(--text-3)] hover:bg-[var(--hairline-subtle)] hover:text-[var(--text)]">
-          <LogOut size={15} />
-        </button>
-      )}
+      <ChevronUp size={15} className={`shrink-0 text-[var(--text-3)] transition-transform ${menu ? "" : "rotate-180"}`} />
+      </button>
+      {keyDialog && <OwnKeyDialog onClose={() => setKeyDialog(false)} />}
     </div>
   );
 }
@@ -214,7 +322,7 @@ export function HistorySidebar() {
           <PlayCircle size={15} /> How to use
         </button>
         <Usage />
-        <Account />
+        <Account onHowTo={() => setHowTo(true)} />
       </div>
       {howTo && <HowToUse onClose={() => setHowTo(false)} />}
       {confirming && (

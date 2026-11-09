@@ -281,11 +281,17 @@ class GeminiQuotaTracker:
 
 
 
-def gemini_keys() -> list[str]:
-    """Every configured Gemini key: GEMINI_API_KEYS (comma or newline separated) plus GEMINI_API_KEY, in order."""
-    from app.config import _load_dotenv
+_DOTENV_LOADED = False
 
-    _load_dotenv()  # this runs at import time, before anything else may have read backend/.env
+
+def gemini_keys() -> list[str]:
+    """Read GEMINI_API_KEYS before GEMINI_API_KEY and keep each distinct key once."""
+    global _DOTENV_LOADED
+    if not _DOTENV_LOADED:  # first call runs at import time, before anything else may have read backend/.env
+        from app.config import _load_dotenv
+
+        _load_dotenv()
+        _DOTENV_LOADED = True
     raw = os.getenv("GEMINI_API_KEYS", "") + "," + os.getenv("GEMINI_API_KEY", "")
     out: list[str] = []
     for k in raw.replace("\n", ",").split(","):
@@ -302,11 +308,10 @@ def _fingerprint(key: str) -> str:
 
 
 class GeminiKeyPool:
-    """Several Gemini keys used as one quota: each key has its own daily and per-minute tracker (persisted
-    separately), every call goes to a key with quota left, and a key Google rate-limits is skipped until it frees.
+    """Select an available key and track its usage separately from the other keys.
 
-    Google's free quota is per Cloud *project*: keys from the same project share one quota, so only keys from
-    different projects add capacity. The pool behaves exactly like a GeminiQuotaTracker to the rest of the app.
+    The app's displayed budget sums its local trackers. Google enforces quota
+    per Cloud project, so keys in the same project share the upstream limit.
     """
 
     def __init__(self, keys: list[str], state_file: str | Path | None = None) -> None:
@@ -318,6 +323,8 @@ class GeminiKeyPool:
             self.trackers.append(GeminiQuotaTracker(state_file=f))
         self._next = 0
         self._lock = threading.Lock()
+        # Keep the selected key on this thread so a concurrent caller cannot
+        # change which tracker receives this request's usage or rate-limit result.
         self._local = threading.local()
 
     def _cur(self) -> int:  # which key the calling thread is using right now
@@ -329,7 +336,8 @@ class GeminiKeyPool:
     def can_call(self) -> tuple[bool, str | None]:
         with self._lock:
             start = self._next
-            self._next = (self._next + 1) % len(self.trackers)  # spread calls across keys (per-minute limits)
+            # Rotate the starting point, then skip keys whose trackers deny a call.
+            self._next = (self._next + 1) % len(self.trackers)
         first_reason = None
         for off in range(len(self.trackers)):
             i = (start + off) % len(self.trackers)
@@ -379,6 +387,8 @@ class GeminiKeyPool:
         for k in ("calls_today", "daily_limit", "remaining_today", "rpm_limit", "calls_last_minute", "daily_budget"):
             if k in out:
                 out[k] = sum(int(p.get(k, 0)) for p in per)
+        # A key can have daily budget left while still cooling down or at its
+        # per-minute limit. can_call() checks those limits before sending.
         live = [p for p in per if not p["exhausted"]]
         out["exhausted"] = not live
         out["resets_in_s"] = min(p["resets_in_s"] for p in per)

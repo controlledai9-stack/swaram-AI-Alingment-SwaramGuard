@@ -344,6 +344,8 @@ export interface ReviewItem {
 
 export interface GeminiQuotaStatus {
   configured: boolean;
+  using_own_key?: boolean;
+  keys?: number;
   model: string;
   calls_today: number;
   daily_limit: number;

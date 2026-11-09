@@ -69,6 +69,9 @@ export const api = {
     post<SimulationResult>("/detection/replay", body),
   baseline: () => request<BaselineSummary>("/detection/baseline"),
   geminiQuota: () => request<GeminiQuotaStatus>("/gemini/quota"),
+  /** Try a Gemini key (one tiny request) before saving it; the server doesn't keep it. */
+  checkGeminiKey: (key: string) =>
+    request<{ ok: boolean; error: string | null }>("/gemini/check-key", { method: "POST", headers: { "X-Gemini-Key": key } }),
   reviews: (status?: string, runId?: string | null) => {
     const q = new URLSearchParams();
     if (status) q.set("status", status);

@@ -54,5 +54,7 @@ def require(calls: int, what: str = "this run") -> None:
 
 
 def check_run(config: ScenarioConfig) -> None:
-    if config.agent_backend == "gemini":
+    from app.identity import user_gemini_key
+
+    if config.agent_backend == "gemini" and user_gemini_key.get() is None:  # own key: Google enforces its quota
         require(estimate_for(config))

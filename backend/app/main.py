@@ -74,13 +74,15 @@ async def require_api_key(request: Request, call_next):
         m = _RUN_PATH.match(request.url.path)
         if m and who is not None and not _visible(who, m.group(1)):
             return JSONResponse(status_code=404, content={"detail": f"run {m.group(1)} not found"})
-    from app.identity import current_user
+    from app.identity import current_user, gemini_key_from, user_gemini_key
 
     token = current_user.set(request.state.principal.name if request.state.principal else None)
+    key_token = user_gemini_key.set(gemini_key_from(request.headers))
     try:
         return await call_next(request)
     finally:
         current_user.reset(token)
+        user_gemini_key.reset(key_token)
 
 
 _RUN_PATH = re.compile(r"^/api/(?:runs|live)/(run-[A-Za-z0-9_-]+)")
@@ -132,9 +134,28 @@ def whoami(request: Request) -> dict[str, Any]:
 @app.get("/api/gemini/quota")
 def gemini_quota() -> dict[str, Any]:
     """Gemini calls used today, what's left, when Google resets it, and what a run costs."""
+    from app.identity import user_gemini_key
     from app.services.quota import quota_status
 
-    return quota_status()
+    return {**quota_status(), "using_own_key": user_gemini_key.get() is not None}
+
+
+@app.post("/api/gemini/check-key")
+def gemini_check_key() -> dict[str, Any]:
+    """Try the caller's own key (X-Gemini-Key) with one tiny request. The key is not stored."""
+    from app.identity import user_gemini_key
+
+    key = user_gemini_key.get()
+    if key is None:
+        raise HTTPException(400, "Send your key in the X-Gemini-Key header (20-200 characters, no spaces).")
+    from app.adapters.gemini_adapter import GeminiAdapter, GeminiQuotaTracker
+
+    try:
+        out = GeminiAdapter(api_key=key, max_calls=1, max_retries=1, quota_tracker=GeminiQuotaTracker(state_file="off")
+                            ).generate_response("Reply with exactly: OK", max_tokens=20, strict=True)
+    except Exception as exc:  # report Google's reason, never the key
+        return {"ok": False, "error": str(exc).replace(key, "[your key]")[:300]}
+    return {"ok": bool(out and out.strip()), "error": None}
 
 
 @app.get("/api/meta")

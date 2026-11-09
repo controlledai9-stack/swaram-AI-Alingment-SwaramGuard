@@ -1,4 +1,5 @@
 import { firebaseToken } from "./firebase";
+import { getOwnGeminiKey } from "./geminiKey";
 
 /** The API key this browser uses when the server has SWARMGUARD_API_KEYS set (see backend/app/auth.py). */
 const STORE = "swarmguard.apiKey";
@@ -28,5 +29,6 @@ export function currentCredential(): string {
 
 export function authHeaders(): Record<string, string> {
   const key = currentCredential();
-  return key ? { Authorization: `Bearer ${key}` } : {};
+  const own = getOwnGeminiKey();
+  return { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...(own ? { "X-Gemini-Key": own } : {}) };
 }
