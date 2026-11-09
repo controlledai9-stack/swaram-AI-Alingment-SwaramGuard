@@ -2,13 +2,13 @@
 
 ## Firebase Hosting and Render for the hackathon
 
-The frontend has a dedicated Firebase Hosting site, `swaramguard.web.app`, in project `ca-study-partner-e8b2c`. The FastAPI service needs its own HTTPS and WebSocket endpoint. Render's free web service can provide that endpoint. Its SQLite file is temporary and can be lost after a restart, redeploy, or idle shutdown. [Render free service limits](https://render.com/docs/free) · [Render WebSockets](https://render.com/docs/websocket)
+The frontend has a dedicated Firebase Hosting site, `swarmguard.web.app` (the older `swaramguard.web.app` serves the same build), in project `ca-study-partner-e8b2c`. The FastAPI service needs its own HTTPS and WebSocket endpoint. Render's free web service can provide that endpoint. Its SQLite file is temporary and can be lost after a restart, redeploy, or idle shutdown. [Render free service limits](https://render.com/docs/free) · [Render WebSockets](https://render.com/docs/websocket)
 
 1. Create a free Python web service from the hackathon repository in Render. Use the repository root, build command `pip install -r backend/requirements.txt`, start command `python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT --no-access-log`, and health check path `/api/health`.
-2. Set `SWARMGUARD_FIREBASE_AUTH_PROJECT=ca-study-partner-e8b2c`, `SWARMGUARD_CORS_ORIGINS=https://swaramguard.web.app`, and `SWARMGUARD_CODE_EXEC=off`. Set `SWARMGUARD_ALLOWED_EMAILS` to include the judges and maintainers who should be able to sign in. Set `SWARMGUARD_ADMIN_EMAILS` to the maintainer accounts only. Check that the public backend health endpoint reports `"auth":"on"`.
-3. Add `swaramguard.web.app` to Firebase Authentication's Authorized domains. Keep the SwaramGuard Web app config in `frontend/.env.local` and add `VITE_SWARMGUARD_API_ORIGIN` with the Render HTTPS origin.
+2. Set `SWARMGUARD_FIREBASE_AUTH_PROJECT=ca-study-partner-e8b2c`, `SWARMGUARD_CORS_ORIGINS=https://swarmguard.web.app,https://swaramguard.web.app`, and `SWARMGUARD_CODE_EXEC=off`. Set `SWARMGUARD_ALLOWED_EMAILS` to include the judges and maintainers who should be able to sign in. Set `SWARMGUARD_ADMIN_EMAILS` to the maintainer accounts only. Check that the public backend health endpoint reports `"auth":"on"`.
+3. Add `swarmguard.web.app` and `swaramguard.web.app` to Firebase Authentication's Authorized domains. Keep the SwaramGuard Web app config in `frontend/.env.local` and add `VITE_SWARMGUARD_API_ORIGIN` with the Render HTTPS origin.
 4. From the repository root, run `npm --prefix frontend ci` and `npm --prefix frontend run build`, then `firebase deploy --only hosting --project ca-study-partner-e8b2c`.
-5. Sign in at `https://swaramguard.web.app` with an allowed account and verify identity, a named run, live updates, History, and sign-out before sharing the link.
+5. Sign in at `https://swarmguard.web.app` with an allowed account and verify identity, a named run, live updates, History, and sign-out before sharing the link.
 
 ## Oracle Cloud Always Free VM
 
