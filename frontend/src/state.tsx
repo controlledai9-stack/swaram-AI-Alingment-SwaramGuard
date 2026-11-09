@@ -6,6 +6,10 @@ const RUN_KEY_PREFIX = "swaramguard.selectedRun";
 
 interface AppState {
   runs: Run[];
+  /** False until the first History load succeeds, so an empty list isn't mistaken for "no runs". */
+  runsLoaded: boolean;
+  /** Set only when loading the History list failed (other requests use apiError). */
+  runsError: string | null;
   meta: Meta | null;
   health: { storage: string; workspace: string } | null;
   apiError: string | null;
@@ -28,6 +32,8 @@ function readStoredRun(key: string): string | null {
 export function AppStateProvider({ children, account = "local" }: { children: ReactNode; account?: string }) {
   const RUN_KEY = `${RUN_KEY_PREFIX}.${account}`;
   const [runs, setRuns] = useState<Run[]>([]);
+  const [runsLoaded, setRunsLoaded] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [health, setHealth] = useState<AppState["health"]>(null);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -44,14 +50,17 @@ export function AppStateProvider({ children, account = "local" }: { children: Re
   }, [RUN_KEY]);
 
   const refreshRuns = useCallback(async () => {
+    setRunsError(null);
     try {
       const list = await api.runs();
       setRuns(list);
+      setRunsLoaded(true);
       setApiError(null);
       // Keep the chosen run if it still exists; never pick one automatically (runs are opened from History).
       setSelected((cur) => (cur && list.some((r) => r.run_id === cur) ? cur : null));
     } catch (e) {
       setApiError((e as Error).message);
+      setRunsError((e as Error).message);
     }
   }, []);
 
@@ -62,7 +71,7 @@ export function AppStateProvider({ children, account = "local" }: { children: Re
   }, [refreshRuns]);
 
   return (
-    <Ctx.Provider value={{ runs, meta, health, apiError, selectedRunId, selectRun, refreshRuns }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ runs, runsLoaded, runsError, meta, health, apiError, selectedRunId, selectRun, refreshRuns }}>{children}</Ctx.Provider>
   );
 }
 

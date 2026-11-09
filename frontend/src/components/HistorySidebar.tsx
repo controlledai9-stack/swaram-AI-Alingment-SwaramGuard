@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronUp, History, KeyRound, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronUp, History, KeyRound, Loader2, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Plus, RotateCw, Search, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { firebaseEnabled, signOut, useFirebaseUser } from "../lib/firebase";
 import { GEMINI_KEY_CHANGED, getOwnGeminiKey, maskKey, setOwnGeminiKey } from "../lib/geminiKey";
@@ -213,9 +213,34 @@ function Account({ onHowTo }: { onHowTo: () => void }) {
   );
 }
 
+/** Placeholder rows shown until the first History load returns (the free server can take ~30 s to wake). */
+function HistoryLoading() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), 4000);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <div role="status" aria-live="polite" className="px-2 pt-2">
+      <div className="flex items-center gap-2 pb-2 text-[12px] text-[var(--text-3)]">
+        <Loader2 size={13} className="animate-spin motion-reduce:animate-none" />
+        {slow ? "Waking the server, this can take up to a minute…" : "Loading your runs…"}
+      </div>
+      <div className="animate-pulse space-y-3 motion-reduce:animate-none" aria-hidden="true">
+        {[78, 62, 70, 55, 66].map((w, i) => (
+          <div key={i} className="space-y-1.5 py-1">
+            <div className="h-3 rounded bg-[var(--hairline-subtle)]" style={{ width: `${w}%` }} />
+            <div className="h-2.5 rounded bg-[var(--hairline-subtle)]" style={{ width: `${w - 20}%` }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** ChatGPT-style history: every saved run, newest first. Opening one switches every page to that run. */
 export function HistorySidebar() {
-  const { runs, selectedRunId, selectRun, refreshRuns } = useAppState();
+  const { runs, runsLoaded, runsError, selectedRunId, selectRun, refreshRuns } = useAppState();
   const [open, setOpen] = useState(true);
   const [confirming, setConfirming] = useState<Run | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -283,7 +308,17 @@ export function HistorySidebar() {
         <div className="flex items-center gap-1.5 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
           <History size={12} /> History
         </div>
-        {runs.length === 0 && <p className="px-2 py-3 text-[13px] text-[var(--text-3)]">No runs yet. Start one with New run.</p>}
+        {!runsLoaded && !runsError && <HistoryLoading />}
+        {!runsLoaded && runsError && (
+          <div className="px-2 py-3 text-[13px] text-[var(--text-3)]" role="alert">
+            <p>Couldn't load your runs yet. The server may still be starting.</p>
+            <button type="button" onClick={() => { void refreshRuns(); }}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline)] px-3 py-1 text-[12px] text-[var(--text)] hover:bg-[var(--hairline-subtle)]">
+              <RotateCw size={12} /> Retry
+            </button>
+          </div>
+        )}
+        {runsLoaded && runs.length === 0 && <p className="px-2 py-3 text-[13px] text-[var(--text-3)]">No runs yet. Start one with New run.</p>}
         {groups.map(([g, rs]) => (
           <div key={g} className="mb-2">
             <div className="px-2 pt-2 pb-1 text-[11px] text-[var(--text-3)]">{g}</div>
